@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { useGameStore } from "../store";
-import { renderEntities, cleanupEntities } from "./EntityRenderer";
+import { renderEntities, cleanupEntities, getAnimator } from "./EntityRenderer";
 import { VELOCITY_INCHES } from "../../config/rules";
 import type { Vec2 } from "../../engine/types";
 import { addVelocities, makeVelocity } from "../../engine/physics";
@@ -223,9 +223,12 @@ export function PlayfieldScene() {
     window.addEventListener("resize", onResize);
 
     let animId = 0;
+    const clock = new THREE.Clock();
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      const dt = clock.getDelta();
       controls.update();
+      getAnimator().update(dt);
       renderer.render(scene, camera);
     };
     animate();

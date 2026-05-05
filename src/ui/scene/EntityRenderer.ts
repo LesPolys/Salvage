@@ -22,11 +22,35 @@ const PLAYER_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12];
 
 // ── Main render function ────────────────────────────────────
 
+import { Animator } from "./Animator";
+
+// Shared animator instance
+let _animator: Animator | null = null;
+export function getAnimator(): Animator {
+  if (!_animator) _animator = new Animator();
+  return _animator;
+}
+
 export function renderEntities(
   game: GameState,
   group: THREE.Group,
   selectedId?: string | null
 ): void {
+  const animator = getAnimator();
+
+  // Save old positions from animator before clearing meshes
+  const oldPositions = new Map<string, { x: number; y: number; z: number; ry: number }>();
+  for (const child of group.children) {
+    if (child.userData.entityId) {
+      oldPositions.set(child.userData.entityId, {
+        x: child.position.x, y: child.position.y, z: child.position.z,
+        ry: child.rotation.y,
+      });
+    }
+  }
+
+  animator.clear();
+
   renderWrecks(game, group);
   renderAsteroids(game, group);
   renderShips(game, group);
@@ -38,6 +62,26 @@ export function renderEntities(
 
   if (selectedId) {
     applySelectionHighlight(group, selectedId);
+  }
+
+  // Register all entity meshes with animator and set targets
+  for (const child of group.children) {
+    const eid = child.userData.entityId;
+    if (!eid) continue;
+
+    const targetPos = { x: child.position.x, z: child.position.z };
+    const targetRotY = child.rotation.y;
+    const targetY = child.position.y;
+
+    animator.register(eid, child);
+    animator.setTarget(eid, targetPos, targetRotY, targetY);
+
+    // If we had an old position, start the mesh there so it lerps
+    const old = oldPositions.get(eid);
+    if (old) {
+      child.position.set(old.x, old.y, old.z);
+      child.rotation.y = old.ry;
+    }
   }
 }
 
