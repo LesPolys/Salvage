@@ -4,56 +4,203 @@ import { reduce } from "../engine/state";
 import { setupGame } from "../engine/setup";
 import { RULES } from "../config/rules";
 import { RNG } from "../engine/rng";
+import type { AIPlayer } from "../ai/base";
+import { AggressiveAI } from "../ai/aggressive";
+import { CautiousAI } from "../ai/cautious";
+import { OpportunisticAI } from "../ai/opportunistic";
 
-/** After a human places, auto-place any AI ships that are next in deploy order */
-function autoPlaceAIShips(state: GameState): GameState {
+function createAI(personality: string): AIPlayer {
+  switch (personality) {
+    case "aggressive": return new AggressiveAI();
+    case "cautious": return new CautiousAI();
+    default: return new OpportunisticAI();
+  }
+}
+
+/**
+ * After any state change, run all AI actions until it's a human's turn.
+ * Handles deploy, roll, assign, resolve phases automatically for AI players.
+ */
+function runAITurns(state: GameState): GameState {
+  let safety = 200;
+  while (safety-- > 0) {
+    const phase = state.meta.phase;
+    if (phase === "gameover") break;
+
+    // Deploy: auto-place AI ships
+    if (phase === "deploy") {
+      const active = state.players[state.meta.activePlayerId];
+      if (!active?.isAI) break;
+      state = autoPlaceOneAI(state);
+      continue;
+    }
+
+    // Roll: auto-roll for all AI players who haven't rolled
+    if (phase === "roll") {
+      let rolled = false;
+      for (const p of Object.values(state.players)) {
+        if (p.isAI && p.dice.length === 0) {
+          state = reduce(state, { type: "ROLL_DICE", playerId: p.id });
+          rolled = true;
+        }
+      }
+      // Also handle AI rerolls
+      if (!rolled) {
+        for (const p of Object.values(state.players)) {
+          if (p.isAI && p.rerollsRemaining > 0) {
+            const ai = createAI(p.aiPersonality ?? "opportunistic");
+            const rerollIds = ai.decideRerolls(state, p.id);
+            if (rerollIds.length > 0) {
+              state = reduce(state, { type: "REROLL", playerId: p.id, dieIds: rerollIds });
+            }
+          }
+        }
+      }
+      // Check if all players have rolled — if so, a human needs to advance or we do
+      const allRolled = Object.values(state.players).every((p) => p.dice.length > 0);
+      if (allRolled) {
+        // If ALL players are AI, advance automatically
+        const anyHuman = Object.values(state.players).some((p) => !p.isAI);
+        if (!anyHuman) {
+          state = reduce(state, { type: "ADVANCE_PHASE" });
+          continue;
+        }
+      }
+      break; // Wait for human to roll or advance
+    }
+
+    // Assign: auto-assign for all AI players
+    if (phase === "assign") {
+      for (const p of Object.values(state.players)) {
+        if (!p.isAI) continue;
+        const ai = createAI(p.aiPersonality ?? "opportunistic");
+        const assignments = ai.decideAssignments(JSON.parse(JSON.stringify(state)), p.id);
+        for (const a of assignments) {
+          try {
+            state = reduce(state, { type: "ASSIGN_DIE", playerId: p.id, dieId: a.dieId, unitId: a.unitId });
+          } catch { /* skip invalid */ }
+        }
+      }
+      // If all players are AI, reveal + advance
+      const anyHuman = Object.values(state.players).some((p) => !p.isAI);
+      if (!anyHuman) {
+        state = reduce(state, { type: "REVEAL_ASSIGNMENTS" });
+        state = reduce(state, { type: "ADVANCE_PHASE" });
+        continue;
+      }
+      break; // Wait for human to assign and reveal
+    }
+
+    // Reveal: auto-advance
+    if (phase === "reveal") {
+      state = reduce(state, { type: "ADVANCE_PHASE" });
+      continue;
+    }
+
+    // Resolve: auto-resolve AI units
+    if (phase === "resolve") {
+      const active = state.players[state.meta.activePlayerId];
+      if (!active?.isAI) break; // Human's turn
+
+      // Resolve all AI dice
+      const assignedDice = active.dice.filter((d) => d.state === "assigned");
+      if (assignedDice.length === 0) {
+        // No dice left — advance to next player or drift
+        const anyDiceLeft = Object.values(state.players).some((p) =>
+          p.dice.some((d) => d.state === "assigned")
+        );
+        if (!anyDiceLeft) {
+          state = reduce(state, { type: "ADVANCE_PHASE" });
+        } else {
+          // Cycle to next player with dice
+          // The engine should handle this but we need to advance active player
+          // For now just break — the phase controls will handle it
+          break;
+        }
+        continue;
+      }
+
+      const die = assignedDice[0];
+      const ai = createAI(active.aiPersonality ?? "opportunistic");
+      const decision = ai.decideAction(state, active.id, die.assignedTo!, die.id, die.value);
+      try {
+        state = reduce(state, {
+          type: "RESOLVE_DIE",
+          playerId: active.id,
+          unitId: die.assignedTo!,
+          dieId: die.id,
+          actionType: decision.actionType,
+          parameters: decision.parameters,
+        });
+      } catch {
+        // Action failed — forfeit die
+        const idx = active.dice.findIndex((d) => d.id === die.id);
+        if (idx !== -1) active.dice[idx].state = "spent";
+        // Remove from pool
+        for (const crew of Object.values(active.crews)) {
+          crew.dicePool = crew.dicePool.filter((id) => id !== die.id);
+        }
+        active.ship.dicePool = active.ship.dicePool.filter((id) => id !== die.id);
+      }
+      continue;
+    }
+
+    // Drift: auto-run
+    if (phase === "drift") {
+      state = reduce(state, { type: "RUN_DRIFT" });
+      state = reduce(state, { type: "ADVANCE_PHASE" });
+      continue;
+    }
+
+    // Scoring: auto-end
+    if (phase === "scoring") {
+      state = reduce(state, { type: "END_GAME" });
+      continue;
+    }
+
+    break;
+  }
+  return state;
+}
+
+/** Auto-place one AI ship on the opposite edge from whoever placed first */
+function autoPlaceOneAI(state: GameState): GameState {
   if (state.meta.phase !== "deploy") return state;
+  const activePlayer = state.players[state.meta.activePlayerId];
+  if (!activePlayer?.isAI) return state;
 
   const halfTable = RULES.table.sizeInches / 2;
   const edgeBuf = RULES.table.shipEdgeBuffer;
-  const rng = new RNG(state.meta.seed + "-ai-deploy-ui");
-  let maxAttempts = 20;
+  const rng = new RNG(state.meta.seed + `-ai-deploy-${activePlayer.id}`);
 
-  while (state.meta.phase === "deploy" && maxAttempts-- > 0) {
-    const activePlayer = state.players[state.meta.activePlayerId];
-    if (!activePlayer?.isAI) break; // Human's turn — stop
+  // Determine edge: opposite of first-placed ship, or random if first
+  const placedShips = Object.values(state.players).filter((p) => p.ship.placed && p.ship.deployEdge);
+  let targetEdge: "top" | "bottom" | "left" | "right";
 
-    // Determine which edge to use
-    const placedShips = Object.values(state.players).filter((p) => p.ship.placed && p.ship.deployEdge);
-    let targetEdge: "top" | "bottom" | "left" | "right";
+  if (placedShips.length > 0) {
+    const firstEdge = placedShips[0].ship.deployEdge!;
+    const oppositeEdges: Record<string, string> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+    targetEdge = oppositeEdges[firstEdge] as typeof targetEdge;
+  } else {
+    const edges: Array<typeof targetEdge> = ["top", "bottom", "left", "right"];
+    targetEdge = edges[rng.nextInt(0, 3)];
+  }
 
-    if (placedShips.length > 0) {
-      const firstEdge = placedShips[0].ship.deployEdge!;
-      // AI picks opposite if first edge is taken by someone else
-      const oppositeEdges: Record<string, string> = { top: "bottom", bottom: "top", left: "right", right: "left" };
-      const opposite = oppositeEdges[firstEdge] as typeof targetEdge;
-      // If first edge has the human, AI goes opposite. If AI was first, next player gets opposite.
-      const oppositeTaken = placedShips.some((p) => p.ship.deployEdge === opposite);
-      targetEdge = !oppositeTaken ? opposite : firstEdge;
-    } else {
-      // First to place — pick random edge
-      const edges: Array<typeof targetEdge> = ["top", "bottom", "left", "right"];
-      targetEdge = edges[rng.nextInt(0, 3)];
-    }
-
-    // Generate position on that edge
+  const spread = halfTable - 4;
+  for (let attempt = 0; attempt < 20; attempt++) {
     let pos: Vec2;
-    const spread = halfTable - 4;
     switch (targetEdge) {
       case "top": pos = { x: rng.nextInt(-spread, spread), z: halfTable - edgeBuf }; break;
       case "bottom": pos = { x: rng.nextInt(-spread, spread), z: -halfTable + edgeBuf }; break;
       case "right": pos = { x: halfTable - edgeBuf, z: rng.nextInt(-spread, spread) }; break;
       case "left": pos = { x: -halfTable + edgeBuf, z: rng.nextInt(-spread, spread) }; break;
     }
-
     try {
-      state = reduce(state, { type: "PLACE_SHIP", playerId: activePlayer.id, position: pos });
+      return reduce(state, { type: "PLACE_SHIP", playerId: activePlayer.id, position: pos });
     } catch {
-      // Retry — position might conflict
       continue;
     }
   }
-
   return state;
 }
 
@@ -129,8 +276,7 @@ export const useGameStore = create<UIState>((set, get) => ({
 
   startGame: (seed, playerCount, playerNames, aiConfig) => {
     let game = setupGame(seed, playerCount, playerNames, aiConfig as Parameters<typeof setupGame>[3]);
-    // Auto-place AI ships if they go first in deploy (reverse turn order)
-    game = autoPlaceAIShips(game);
+    game = runAITurns(game);
     set({ game, isStarted: true, selectedEntityId: null });
   },
 
@@ -139,8 +285,7 @@ export const useGameStore = create<UIState>((set, get) => ({
     if (!game) return;
     try {
       let next = reduce(game, action);
-      // Auto-place AI ships during deploy phase
-      next = autoPlaceAIShips(next);
+      next = runAITurns(next);
       set({ game: next });
     } catch (e) {
       console.error("Action failed:", e);
