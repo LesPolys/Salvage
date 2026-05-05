@@ -160,6 +160,7 @@ function reducePlaceShip(state: GameState, playerId: string, position: Vec2): Ga
   }
 
   // Validate: ≥6" from any other placed ship
+  // Validate: ≥6" from any other placed ship
   for (const p of Object.values(next.players)) {
     if (p.id === playerId) continue;
     if (!p.ship.placed) continue;
@@ -167,6 +168,21 @@ function reducePlaceShip(state: GameState, playerId: string, position: Vec2): Ga
     const dz = p.ship.position.z - position.z;
     if (Math.sqrt(dx * dx + dz * dz) < RULES.table.minShipSpacing)
       throw new Error("Too close to another ship (min 6\" apart)");
+  }
+
+  // Validate: not colliding with wrecks or asteroids
+  const shipRadius = Math.max(RULES.ship.baseSize.x, RULES.ship.baseSize.z) / 2 + 0.5;
+  for (const wreck of next.table.wrecks) {
+    const dx = wreck.position.x - position.x;
+    const dz = wreck.position.z - position.z;
+    if (Math.sqrt(dx * dx + dz * dz) < shipRadius + 4) // wreck radius ~4
+      throw new Error("Cannot place ship on top of a wreck");
+  }
+  for (const asteroid of next.table.asteroids) {
+    const dx = asteroid.position.x - position.x;
+    const dz = asteroid.position.z - position.z;
+    if (Math.sqrt(dx * dx + dz * dz) < shipRadius + 3)
+      throw new Error("Cannot place ship on top of an asteroid");
   }
 
   player.ship.position = { ...position };

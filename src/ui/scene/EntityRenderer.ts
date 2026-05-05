@@ -172,6 +172,7 @@ function renderShips(game: GameState, group: THREE.Group): void {
   for (let pi = 0; pi < playerIds.length; pi++) {
     const player = game.players[playerIds[pi]];
     const ship = player.ship;
+    if (!ship.placed) continue; // Don't render unplaced ships
     const color = PLAYER_COLORS[pi] ?? 0xcccccc;
 
     const shipGroup = new THREE.Group();
@@ -194,6 +195,36 @@ function renderShips(game: GameState, group: THREE.Group): void {
     hull.position.y = 0.4;
     hull.castShadow = true;
     shipGroup.add(hull);
+
+    // Bridge/cockpit at the front (-Z) — clear visual marker
+    const bridgeGeo = new THREE.BoxGeometry(0.8, 0.5, 0.6);
+    const bridgeMat = new THREE.MeshStandardMaterial({
+      color: 0x88ccff,
+      emissive: 0x224466,
+      emissiveIntensity: 0.6,
+      transparent: true,
+      opacity: 0.8,
+      metalness: 0.8,
+      roughness: 0.2,
+    });
+    const bridge = new THREE.Mesh(bridgeGeo, bridgeMat);
+    bridge.position.set(0, 0.65, -1.2);
+    shipGroup.add(bridge);
+
+    // Forward chevron on deck (player color arrow pointing front)
+    const chevronShape = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, -0.6),
+      new THREE.Vector3(-0.4, 0, 0),
+      new THREE.Vector3(0, 0, -0.2),
+      new THREE.Vector3(0.4, 0, 0),
+      new THREE.Vector3(0, 0, -0.6),
+    ]);
+    const chevron = new THREE.Line(
+      chevronShape,
+      new THREE.LineBasicMaterial({ color })
+    );
+    chevron.position.set(0, 0.82, -0.3);
+    shipGroup.add(chevron);
 
     // Running lights (player color)
     const lightGeo = new THREE.SphereGeometry(0.15, 6, 4);

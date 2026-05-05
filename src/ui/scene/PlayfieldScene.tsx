@@ -7,6 +7,7 @@ import { VELOCITY_INCHES } from "../../config/rules";
 import type { Vec2 } from "../../engine/types";
 import { addVelocities, makeVelocity } from "../../engine/physics";
 import type { SpeedTier } from "../../engine/types";
+import { RULES } from "../../config/rules";
 
 const TABLE_SIZE = 36;
 const HALF = TABLE_SIZE / 2;
@@ -283,45 +284,102 @@ export function PlayfieldScene() {
 
     if (!targeting) return;
 
-    // Deploy phase: show deployment zone highlight
+    // Deploy phase: highlight the nearest edge to the mouse
     if (targeting.targetKind === "point" && game?.meta.phase === "deploy") {
-      const edgeBuf = 2; // RULES.table.shipEdgeBuffer
-      // Draw 4 edge zone rectangles (semi-transparent green)
-      const zoneMat = new THREE.MeshBasicMaterial({ color: 0x22aa44, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
-      // Top edge
-      const topGeo = new THREE.PlaneGeometry(TABLE_SIZE, edgeBuf);
-      const top = new THREE.Mesh(topGeo, zoneMat);
-      top.rotation.x = -Math.PI / 2;
-      top.position.set(0, 0.03, HALF - edgeBuf / 2);
-      previewGroup.add(top);
-      // Bottom
-      const bot = new THREE.Mesh(topGeo.clone(), zoneMat);
-      bot.rotation.x = -Math.PI / 2;
-      bot.position.set(0, 0.03, -HALF + edgeBuf / 2);
-      previewGroup.add(bot);
-      // Left
-      const sideGeo = new THREE.PlaneGeometry(edgeBuf, TABLE_SIZE);
-      const left = new THREE.Mesh(sideGeo, zoneMat);
-      left.rotation.x = -Math.PI / 2;
-      left.position.set(-HALF + edgeBuf / 2, 0.03, 0);
-      previewGroup.add(left);
-      // Right
-      const right = new THREE.Mesh(sideGeo.clone(), zoneMat);
-      right.rotation.x = -Math.PI / 2;
-      right.position.set(HALF - edgeBuf / 2, 0.03, 0);
-      previewGroup.add(right);
+      const edgeBuf = 2;
+      const dimMat = new THREE.MeshBasicMaterial({ color: 0x224433, transparent: true, opacity: 0.04, side: THREE.DoubleSide });
+      const hotMat = new THREE.MeshBasicMaterial({ color: 0x22cc44, transparent: true, opacity: 0.15, side: THREE.DoubleSide });
 
-      // Show cursor marker at mouse position
+      // Determine which edge the mouse is nearest to
+      let nearestEdge: "top" | "bottom" | "left" | "right" | null = null;
       if (targetingMousePos) {
-        const marker = new THREE.Mesh(
-          new THREE.RingGeometry(0.8, 1.2, 16),
-          new THREE.MeshBasicMaterial({ color: 0x44cc44, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
-        );
-        marker.rotation.x = -Math.PI / 2;
-        marker.position.set(targetingMousePos.x, 0.05, targetingMousePos.z);
-        previewGroup.add(marker);
+        const mx = targetingMousePos.x;
+        const mz = targetingMousePos.z;
+        const dists = {
+          top: HALF - mz,
+          bottom: mz + HALF,
+          right: HALF - mx,
+          left: mx + HALF,
+        };
+        nearestEdge = Object.entries(dists).sort((a, b) => a[1] - b[1])[0][0] as "top" | "bottom" | "left" | "right";
       }
-      return; // Don't draw vector arrows during deploy
+
+      // Check which edges are allowed (opposite-edge rule)
+      const placedShips = Object.values(game.players).filter((p) => p.ship.placed && p.ship.deployEdge);
+      let allowedEdges: Set<string> | null = null;
+      if (placedShips.length > 0) {
+        const firstEdge = placedShips[0].ship.deployEdge!;
+        const opposite: Record<string, string> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+        allowedEdges = new Set([firstEdge, opposite[firstEdge]]);
+      }
+
+      // Draw each edge zone
+      const edges: Array<{ name: string; geo: THREE.PlaneGeometry; pos: [number, number, number] }> = [
+        { name: "top", geo: new THREE.PlaneGeometry(TABLE_SIZE, edgeBuf), pos: [0, 0.03, HALF - edgeBuf / 2] },
+        { name: "bottom", geo: new THREE.PlaneGeometry(TABLE_SIZE, edgeBuf), pos: [0, 0.03, -HALF + edgeBuf / 2] },
+        { name: "left", geo: new THREE.PlaneGeometry(edgeBuf, TABLE_SIZE), pos: [-HALF + edgeBuf / 2, 0.03, 0] },
+        { name: "right", geo: new THREE.PlaneGeometry(edgeBuf, TABLE_SIZE), pos: [HALF - edgeBuf / 2, 0.03, 0] },
+      ];
+
+      for (const e of edges) {
+        const isNearest = e.name === nearestEdge;
+        const isAllowed = !allowedEdges || allowedEdges.has(e.name);
+        const mat = isNearest && isAllowed ? hotMat
+          : isAllowed ? dimMat
+          : new THREE.MeshBasicMaterial({ color: 0x442222, transparent: true, opacity: 0.04, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(e.geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(...e.pos);
+        previewGroup.add(mesh);
+
+        // Edge label
+        if (isNearest && isAllowed) {
+          const edgeBorder = new THREE.BufferGeometry().setFromPoints(
+            e.name === "top" || e.name === "bottom"
+              ? [new THREE.Vector3(-HALF, 0.06, e.pos[2]), new THREE.Vector3(HALF, 0.06, e.pos[2])]
+              : [new THREE.Vector3(e.pos[0], 0.06, -HALF), new THREE.Vector3(e.pos[0], 0.06, HALF)]
+          );
+          previewGroup.add(new THREE.Line(edgeBorder, new THREE.LineBasicMaterial({ color: 0x44ff66 })));
+        }
+      }
+
+      // Ship ghost at cursor position (snapped to nearest allowed edge)
+      if (targetingMousePos && nearestEdge && (!allowedEdges || allowedEdges.has(nearestEdge))) {
+        // Snap position to edge
+        let snapPos = { x: targetingMousePos.x, z: targetingMousePos.z };
+        switch (nearestEdge) {
+          case "top": snapPos = { x: targetingMousePos.x, z: HALF - edgeBuf }; break;
+          case "bottom": snapPos = { x: targetingMousePos.x, z: -HALF + edgeBuf }; break;
+          case "left": snapPos = { x: -HALF + edgeBuf, z: targetingMousePos.z }; break;
+          case "right": snapPos = { x: HALF - edgeBuf, z: targetingMousePos.z }; break;
+        }
+
+        // Ghost ship outline
+        const ghostGeo = new THREE.BoxGeometry(
+          RULES.ship.baseSize.x, 0.3, RULES.ship.baseSize.z
+        );
+        const ghostMat = new THREE.MeshBasicMaterial({
+          color: 0x44cc44, transparent: true, opacity: 0.3, wireframe: true,
+        });
+        const ghost = new THREE.Mesh(ghostGeo, ghostMat);
+        ghost.position.set(snapPos.x, 0.4, snapPos.z);
+
+        // Rotate ghost to face inward
+        const facingAngles: Record<string, number> = {
+          top: -Math.PI / 2, bottom: Math.PI / 2, left: 0, right: Math.PI,
+        };
+        ghost.rotation.y = -(facingAngles[nearestEdge] + Math.PI / 2);
+        previewGroup.add(ghost);
+
+        // Front arrow on ghost
+        const arrowDir = new THREE.Vector3(
+          Math.cos(facingAngles[nearestEdge]), 0, Math.sin(facingAngles[nearestEdge])
+        ).normalize();
+        const arrow = new THREE.ArrowHelper(arrowDir, new THREE.Vector3(snapPos.x, 0.8, snapPos.z), 2, 0x44ff66, 0.6, 0.3);
+        previewGroup.add(arrow);
+      }
+
+      return;
     }
 
     if (!targetingMousePos) return;

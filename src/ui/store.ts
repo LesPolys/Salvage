@@ -162,11 +162,29 @@ export const useGameStore = create<UIState>((set, get) => ({
     if (!targeting) return;
 
     if (game?.meta.phase === "deploy" && targeting.targetKind === "point") {
-      // Deploy phase: place ship at clicked position
+      // Deploy phase: snap to nearest edge
+      const ht = RULES.table.sizeInches / 2;
+      const eb = RULES.table.shipEdgeBuffer;
+      const dists = {
+        top: ht - worldPos.z,
+        bottom: worldPos.z + ht,
+        right: ht - worldPos.x,
+        left: worldPos.x + ht,
+      };
+      const nearest = Object.entries(dists).sort((a, b) => a[1] - b[1])[0][0];
+      let snapped: Vec2;
+      switch (nearest) {
+        case "top": snapped = { x: worldPos.x, z: ht - eb }; break;
+        case "bottom": snapped = { x: worldPos.x, z: -ht + eb }; break;
+        case "left": snapped = { x: -ht + eb, z: worldPos.z }; break;
+        case "right": snapped = { x: ht - eb, z: worldPos.z }; break;
+        default: snapped = worldPos;
+      }
+
       dispatch({
         type: "PLACE_SHIP",
         playerId: targeting.playerId,
-        position: worldPos,
+        position: snapped,
       });
     } else {
       // Direction targeting: compute angle from unit to click point
