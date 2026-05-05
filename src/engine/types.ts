@@ -66,10 +66,13 @@ export interface Anchor {
   inUse: boolean;
 }
 
+export type TableEdge = "top" | "bottom" | "left" | "right";
+
 export interface Ship {
   id: EntityId;
   ownerId: string;
   position: Vec2;
+  facing: number; // radians, direction the ship points (away from deploy edge)
   velocity: Velocity;
   hold: Salvage[];
   holdMass: number; // computed; max 6
@@ -77,6 +80,7 @@ export interface Ship {
   slots: ShipSlot[]; // available actions + requirements
   dicePool: string[]; // die IDs assigned to this ship
   placed: boolean; // false until player places during deploy phase
+  deployEdge?: TableEdge; // which edge this ship was placed on
 }
 
 // ── Crew ────────────────────────────────────────────────────

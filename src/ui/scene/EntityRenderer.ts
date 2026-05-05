@@ -240,6 +240,7 @@ function renderShips(game: GameState, group: THREE.Group): void {
     }
 
     shipGroup.position.set(ship.position.x, 0, ship.position.z);
+    shipGroup.rotation.y = -ship.facing; // rotate to face deployment direction
     group.add(shipGroup);
   }
 }

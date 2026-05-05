@@ -98,6 +98,27 @@ export function reduce(state: GameState, action: Action): GameState {
   }
 }
 
+import type { TableEdge } from "./types";
+
+const OPPOSITE_EDGE: Record<TableEdge, TableEdge> = {
+  top: "bottom", bottom: "top", left: "right", right: "left",
+};
+
+const EDGE_FACING: Record<TableEdge, number> = {
+  top: -Math.PI / 2,    // face south (inward)
+  bottom: Math.PI / 2,  // face north (inward)
+  left: 0,              // face east (inward)
+  right: Math.PI,       // face west (inward)
+};
+
+function detectEdge(position: Vec2, halfTable: number, edgeBuf: number): TableEdge | null {
+  if (position.z >= halfTable - edgeBuf) return "top";
+  if (position.z <= -halfTable + edgeBuf) return "bottom";
+  if (position.x >= halfTable - edgeBuf) return "right";
+  if (position.x <= -halfTable + edgeBuf) return "left";
+  return null;
+}
+
 function reducePlaceShip(state: GameState, playerId: string, position: Vec2): GameState {
   if (state.meta.phase !== "deploy")
     throw new Error(`Cannot place ship in phase: ${state.meta.phase}`);
@@ -109,19 +130,34 @@ function reducePlaceShip(state: GameState, playerId: string, position: Vec2): Ga
   if (!player) throw new Error(`Unknown player: ${playerId}`);
   if (player.ship.placed) throw new Error("Ship already placed");
 
-  // Validate: within deployment zone (within edge buffer of any table edge)
   const halfTable = RULES.table.sizeInches / 2;
   const edgeBuf = RULES.table.shipEdgeBuffer;
-  const nearEdge =
-    position.x <= -halfTable + edgeBuf ||
-    position.x >= halfTable - edgeBuf ||
-    position.z <= -halfTable + edgeBuf ||
-    position.z >= halfTable - edgeBuf;
-  if (!nearEdge) throw new Error("Ship must be placed within 2\" of a table edge");
 
   // Validate: on the table
   if (Math.abs(position.x) > halfTable || Math.abs(position.z) > halfTable)
     throw new Error("Ship must be on the table");
+
+  // Detect which edge
+  const edge = detectEdge(position, halfTable, edgeBuf);
+  if (!edge) throw new Error("Ship must be placed within 2\" of a table edge");
+
+  // Enforce opposite-edge rule: if any ship is already placed, this player
+  // must use the opposite edge of the first-placed ship
+  const placedShips = Object.values(next.players)
+    .filter((p) => p.ship.placed && p.ship.deployEdge);
+  if (placedShips.length > 0) {
+    const firstEdge = placedShips[0].ship.deployEdge!;
+    const allowedEdge = OPPOSITE_EDGE[firstEdge];
+    if (edge !== firstEdge && edge !== allowedEdge) {
+      throw new Error(`Must place on ${firstEdge} or ${allowedEdge} edge (opposite sides)`);
+    }
+    // If first player took an edge, opponent must take opposite
+    if (placedShips.some((p) => p.ship.deployEdge === edge && p.id !== playerId)) {
+      // Same edge is ok for teammates in 3-4p, but opponent must be opposite
+      // For simplicity: just enforce that you can't be on the same edge as anyone else
+      // unless it's a teammate (not tracked yet). Allow same edge for now.
+    }
+  }
 
   // Validate: ≥6" from any other placed ship
   for (const p of Object.values(next.players)) {
@@ -135,6 +171,8 @@ function reducePlaceShip(state: GameState, playerId: string, position: Vec2): Ga
 
   player.ship.position = { ...position };
   player.ship.velocity = { direction: 0, magnitude: 0 };
+  player.ship.facing = EDGE_FACING[edge];
+  player.ship.deployEdge = edge;
   player.ship.placed = true;
 
   // Advance to next player who hasn't placed, or finish deploy
@@ -142,13 +180,11 @@ function reducePlaceShip(state: GameState, playerId: string, position: Vec2): Ga
   const allPlaced = turnOrder.every((pid) => next.players[pid].ship.placed);
 
   if (allPlaced) {
-    // Deploy done — switch to normal turn order and start round 1
     const normalOrder = Object.keys(next.players);
     next.meta.turnOrder = normalOrder;
     next.meta.activePlayerId = normalOrder[0];
     next.meta.phase = "roll";
   } else {
-    // Next unplaced player in reverse turn order
     const currentIdx = turnOrder.indexOf(playerId);
     for (let i = 1; i <= turnOrder.length; i++) {
       const nextIdx = (currentIdx + i) % turnOrder.length;
@@ -235,6 +271,7 @@ export function createInitialState(seed: string, playerCount: number): GameState
         id: `ship-${pid}`,
         ownerId: pid,
         position: { x: 0, z: 0 },
+        facing: 0,
         velocity: { ...ZERO_VELOCITY },
         hold: [],
         holdMass: 0,

@@ -2,6 +2,60 @@ import { create } from "zustand";
 import type { GameState, Action, EntityId, Phase, ActionType, Vec2, Velocity } from "../engine/types";
 import { reduce } from "../engine/state";
 import { setupGame } from "../engine/setup";
+import { RULES } from "../config/rules";
+import { RNG } from "../engine/rng";
+
+/** After a human places, auto-place any AI ships that are next in deploy order */
+function autoPlaceAIShips(state: GameState): GameState {
+  if (state.meta.phase !== "deploy") return state;
+
+  const halfTable = RULES.table.sizeInches / 2;
+  const edgeBuf = RULES.table.shipEdgeBuffer;
+  const rng = new RNG(state.meta.seed + "-ai-deploy-ui");
+  let maxAttempts = 20;
+
+  while (state.meta.phase === "deploy" && maxAttempts-- > 0) {
+    const activePlayer = state.players[state.meta.activePlayerId];
+    if (!activePlayer?.isAI) break; // Human's turn — stop
+
+    // Determine which edge to use
+    const placedShips = Object.values(state.players).filter((p) => p.ship.placed && p.ship.deployEdge);
+    let targetEdge: "top" | "bottom" | "left" | "right";
+
+    if (placedShips.length > 0) {
+      const firstEdge = placedShips[0].ship.deployEdge!;
+      // AI picks opposite if first edge is taken by someone else
+      const oppositeEdges: Record<string, string> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+      const opposite = oppositeEdges[firstEdge] as typeof targetEdge;
+      // If first edge has the human, AI goes opposite. If AI was first, next player gets opposite.
+      const oppositeTaken = placedShips.some((p) => p.ship.deployEdge === opposite);
+      targetEdge = !oppositeTaken ? opposite : firstEdge;
+    } else {
+      // First to place — pick random edge
+      const edges: Array<typeof targetEdge> = ["top", "bottom", "left", "right"];
+      targetEdge = edges[rng.nextInt(0, 3)];
+    }
+
+    // Generate position on that edge
+    let pos: Vec2;
+    const spread = halfTable - 4;
+    switch (targetEdge) {
+      case "top": pos = { x: rng.nextInt(-spread, spread), z: halfTable - edgeBuf }; break;
+      case "bottom": pos = { x: rng.nextInt(-spread, spread), z: -halfTable + edgeBuf }; break;
+      case "right": pos = { x: halfTable - edgeBuf, z: rng.nextInt(-spread, spread) }; break;
+      case "left": pos = { x: -halfTable + edgeBuf, z: rng.nextInt(-spread, spread) }; break;
+    }
+
+    try {
+      state = reduce(state, { type: "PLACE_SHIP", playerId: activePlayer.id, position: pos });
+    } catch {
+      // Retry — position might conflict
+      continue;
+    }
+  }
+
+  return state;
+}
 
 export interface TargetingMode {
   /** The action being targeted */
@@ -74,7 +128,9 @@ export const useGameStore = create<UIState>((set, get) => ({
   showGrid: true,
 
   startGame: (seed, playerCount, playerNames, aiConfig) => {
-    const game = setupGame(seed, playerCount, playerNames, aiConfig as Parameters<typeof setupGame>[3]);
+    let game = setupGame(seed, playerCount, playerNames, aiConfig as Parameters<typeof setupGame>[3]);
+    // Auto-place AI ships if they go first in deploy (reverse turn order)
+    game = autoPlaceAIShips(game);
     set({ game, isStarted: true, selectedEntityId: null });
   },
 
@@ -82,7 +138,9 @@ export const useGameStore = create<UIState>((set, get) => ({
     const { game } = get();
     if (!game) return;
     try {
-      const next = reduce(game, action);
+      let next = reduce(game, action);
+      // Auto-place AI ships during deploy phase
+      next = autoPlaceAIShips(next);
       set({ game: next });
     } catch (e) {
       console.error("Action failed:", e);
