@@ -1,7 +1,24 @@
 import { create } from "zustand";
-import type { GameState, Action, EntityId, Phase } from "../engine/types";
+import type { GameState, Action, EntityId, Phase, ActionType, Vec2, Velocity } from "../engine/types";
 import { reduce } from "../engine/state";
 import { setupGame } from "../engine/setup";
+
+export interface TargetingMode {
+  /** The action being targeted */
+  actionType: ActionType;
+  /** The unit performing the action */
+  unitId: EntityId;
+  /** The die being spent */
+  dieId: string;
+  /** The player */
+  playerId: string;
+  /** Unit's current position on the table */
+  unitPosition: Vec2;
+  /** Unit's current velocity (for vector preview) */
+  currentVelocity: Velocity;
+  /** What kind of targeting: direction (burns, push-off), point (grapple), entity (cut, breach) */
+  targetKind: "direction" | "point" | "entity";
+}
 
 export interface UIState {
   // Game state
@@ -14,6 +31,11 @@ export interface UIState {
 
   // Dice drag state (assign phase)
   draggingDieId: string | null;
+
+  // Targeting mode (resolve phase — awaiting click on playfield)
+  targeting: TargetingMode | null;
+  /** Mouse position on the playfield during targeting (world coords) */
+  targetingMousePos: Vec2 | null;
 
   // Debug
   showDebug: boolean;
@@ -28,6 +50,12 @@ export interface UIState {
   toggleDebug: () => void;
   toggleGrid: () => void;
 
+  // Targeting
+  startTargeting: (mode: TargetingMode) => void;
+  updateTargetingMouse: (pos: Vec2 | null) => void;
+  confirmTargeting: (worldPos: Vec2) => void;
+  cancelTargeting: () => void;
+
   // Convenience getters
   currentPhase: () => Phase | null;
   activePlayerId: () => string | null;
@@ -40,6 +68,8 @@ export const useGameStore = create<UIState>((set, get) => ({
   selectedEntityId: null,
   hoveredEntityId: null,
   draggingDieId: null,
+  targeting: null,
+  targetingMousePos: null,
   showDebug: false,
   showGrid: true,
 
@@ -64,6 +94,30 @@ export const useGameStore = create<UIState>((set, get) => ({
   setDraggingDie: (dieId) => set({ draggingDieId: dieId }),
   toggleDebug: () => set((s) => ({ showDebug: !s.showDebug })),
   toggleGrid: () => set((s) => ({ showGrid: !s.showGrid })),
+
+  startTargeting: (mode) => set({ targeting: mode, targetingMousePos: null }),
+  updateTargetingMouse: (pos) => set({ targetingMousePos: pos }),
+  cancelTargeting: () => set({ targeting: null, targetingMousePos: null }),
+
+  confirmTargeting: (worldPos) => {
+    const { targeting, dispatch } = get();
+    if (!targeting) return;
+
+    const dx = worldPos.x - targeting.unitPosition.x;
+    const dz = worldPos.z - targeting.unitPosition.z;
+    const direction = Math.atan2(dz, dx);
+
+    dispatch({
+      type: "RESOLVE_DIE",
+      playerId: targeting.playerId,
+      unitId: targeting.unitId,
+      dieId: targeting.dieId,
+      actionType: targeting.actionType,
+      parameters: { direction },
+    });
+
+    set({ targeting: null, targetingMousePos: null });
+  },
 
   currentPhase: () => get().game?.meta.phase ?? null,
   activePlayerId: () => get().game?.meta.activePlayerId ?? null,

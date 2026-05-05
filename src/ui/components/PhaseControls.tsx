@@ -184,33 +184,84 @@ function RevealPhase() {
   );
 }
 
+const DIRECTION_ACTIONS = new Set([
+  "burn-small", "burn-big", "burn-max", "push-off", "thruster-burn", "launch", "shove",
+]);
+
 function ResolvePhase() {
   const game = useGameStore((s) => s.game)!;
   const dispatch = useGameStore((s) => s.dispatch);
-  const [actionType, setActionType] = useState<string>("");
+  const startTargeting = useGameStore((s) => s.startTargeting);
+  const targeting = useGameStore((s) => s.targeting);
+  const [selectedDieId, setSelectedDieId] = useState<string | null>(null);
   const [actionParams, setActionParams] = useState<string>("{}");
 
   const activePlayer = game.players[game.meta.activePlayerId];
   if (!activePlayer) return null;
 
-  // Find all assigned dice for the active player
   const assignedDice = activePlayer.dice.filter((d) => d.state === "assigned");
 
-  const handleResolve = (dieId: string) => {
-    let params: Record<string, unknown> = {};
-    try {
-      params = JSON.parse(actionParams);
-    } catch { /* ignore */ }
+  // Get the unit a die is assigned to
+  const getUnitForDie = (dieId: string) => {
     const die = activePlayer.dice.find((d) => d.id === dieId);
-    dispatch({
-      type: "RESOLVE_DIE",
-      playerId: activePlayer.id,
-      unitId: die?.assignedTo ?? activePlayer.ship.id,
-      dieId,
-      actionType: actionType as ActionType,
-      parameters: params,
-    });
+    return die?.assignedTo ?? activePlayer.ship.id;
   };
+
+  // Get position + velocity for a unit
+  const getUnitState = (unitId: string) => {
+    if (activePlayer.ship.id === unitId) {
+      return { position: activePlayer.ship.position, velocity: activePlayer.ship.velocity };
+    }
+    for (const crew of Object.values(activePlayer.crews)) {
+      if (crew.id === unitId && crew.position !== "embarked") {
+        return { position: crew.position as { x: number; z: number }, velocity: crew.velocity };
+      }
+    }
+    return { position: activePlayer.ship.position, velocity: { direction: 0, magnitude: 0 as const } };
+  };
+
+  const handleAction = (dieId: string, actionType: string) => {
+    const unitId = getUnitForDie(dieId);
+    const { position, velocity } = getUnitState(unitId);
+
+    if (DIRECTION_ACTIONS.has(actionType)) {
+      // Enter targeting mode — player clicks on the playfield
+      startTargeting({
+        actionType: actionType as ActionType,
+        unitId,
+        dieId,
+        playerId: activePlayer.id,
+        unitPosition: position,
+        currentVelocity: velocity,
+        targetKind: "direction",
+      });
+    } else {
+      // Non-direction actions: dispatch immediately with any extra params
+      let params: Record<string, unknown> = {};
+      try { params = JSON.parse(actionParams); } catch { /* ignore */ }
+      dispatch({
+        type: "RESOLVE_DIE",
+        playerId: activePlayer.id,
+        unitId,
+        dieId,
+        actionType: actionType as ActionType,
+        parameters: params,
+      });
+    }
+    setSelectedDieId(null);
+  };
+
+  if (targeting) {
+    return (
+      <div style={controlsStyle}>
+        <div style={phaseTitle}>Targeting...</div>
+        <div style={{ color: "#88cc88", fontSize: "12px" }}>
+          Click on the playfield to set direction for <b>{targeting.actionType}</b>.
+          Right-click or Esc to cancel.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={controlsStyle}>
@@ -222,69 +273,69 @@ function ResolvePhase() {
 
       {assignedDice.length > 0 && (
         <>
-          <div style={{ marginBottom: "6px" }}>
-            <label style={{ color: "#667788", fontSize: "11px" }}>
-              Action type:{" "}
-              <select
-                value={actionType}
-                onChange={(e) => setActionType(e.target.value)}
-                style={selectStyle}
-              >
-                <option value="">--select--</option>
-                <optgroup label="Ship">
-                  <option value="burn-small">Burn (Small)</option>
-                  <option value="burn-big">Burn (Big)</option>
-                  <option value="burn-max">Burn (Max)</option>
-                  <option value="launch">Launch</option>
-                  <option value="recall">Recall</option>
-                  <option value="stow">Stow</option>
-                  <option value="scan">Scan</option>
-                </optgroup>
-                <optgroup label="Crew Generic">
-                  <option value="crawl">Crawl</option>
-                  <option value="push-off">Push Off</option>
-                  <option value="thruster-burn">Thruster Burn</option>
-                  <option value="haul">Haul</option>
-                  <option value="rig-tether">Rig Tether</option>
-                  <option value="scavenge">Scavenge</option>
-                  <option value="brace">Brace</option>
-                  <option value="shove">Shove</option>
-                  <option value="tackle">Tackle</option>
-                  <option value="embark">Embark</option>
-                </optgroup>
-                <optgroup label="Role-Locked">
-                  <option value="cut">Cut</option>
-                  <option value="grapple">Grapple</option>
-                  <option value="breach">Breach</option>
-                  <option value="heavy-haul">Heavy Haul</option>
-                </optgroup>
-              </select>
-            </label>
+          {/* Step 1: Pick a die */}
+          <div style={{ marginBottom: "8px" }}>
+            <span style={{ color: "#667788", fontSize: "11px" }}>1. Select die: </span>
+            <div style={{ display: "flex", gap: "4px", marginTop: "4px" }}>
+              {assignedDice.map((die) => (
+                <button
+                  key={die.id}
+                  onClick={() => setSelectedDieId(die.id === selectedDieId ? null : die.id)}
+                  style={{
+                    width: "36px", height: "36px",
+                    background: die.id === selectedDieId ? "#334466" : "#222233",
+                    border: die.id === selectedDieId ? "2px solid #6688aa" : "1px solid #333344",
+                    color: "#eee", fontWeight: "bold", fontSize: "16px",
+                    borderRadius: "4px", cursor: "pointer", fontFamily: "monospace",
+                  }}
+                  title={`Die ${die.value} on ${die.assignedTo}`}
+                >
+                  {die.value}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ marginBottom: "6px" }}>
-            <label style={{ color: "#667788", fontSize: "11px" }}>
-              Params (JSON):{" "}
-              <input
-                type="text"
-                value={actionParams}
-                onChange={(e) => setActionParams(e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-          </div>
-          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-            {assignedDice.map((die) => (
-              <button
-                key={die.id}
-                onClick={() => handleResolve(die.id)}
-                disabled={!actionType}
-                style={actionBtn(!!actionType)}
-                title={`Die ${die.value} on ${die.assignedTo}`}
-              >
-                Resolve [{die.value}] on {die.assignedTo}
-              </button>
-            ))}
-          </div>
+
+          {/* Step 2: Pick action */}
+          {selectedDieId && (
+            <div>
+              <span style={{ color: "#667788", fontSize: "11px" }}>
+                2. Choose action (die value: {activePlayer.dice.find((d) => d.id === selectedDieId)?.value}):
+              </span>
+              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}>
+                {getAvailableActions(game, activePlayer.id, getUnitForDie(selectedDieId),
+                  activePlayer.dice.find((d) => d.id === selectedDieId)?.value ?? 1
+                ).map((act) => (
+                  <button
+                    key={act.type}
+                    onClick={() => handleAction(selectedDieId, act.type)}
+                    style={{
+                      ...actionBtn(true),
+                      fontSize: "11px",
+                      padding: "4px 8px",
+                      borderColor: DIRECTION_ACTIONS.has(act.type) ? "#336644" : "#334455",
+                    }}
+                    title={act.description}
+                  >
+                    {act.label}
+                    {DIRECTION_ACTIONS.has(act.type) && " ⟶"}
+                  </button>
+                ))}
+              </div>
+              {/* Extra params for non-direction actions */}
+              <div style={{ marginTop: "6px" }}>
+                <label style={{ color: "#556677", fontSize: "10px" }}>
+                  Extra params:{" "}
+                  <input
+                    type="text"
+                    value={actionParams}
+                    onChange={(e) => setActionParams(e.target.value)}
+                    style={{ ...inputStyle, width: "180px", fontSize: "10px" }}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -295,6 +346,70 @@ function ResolvePhase() {
       )}
     </div>
   );
+}
+
+interface AvailableAction {
+  type: string;
+  label: string;
+  description: string;
+}
+
+function getAvailableActions(
+  game: import("../../engine/types").GameState,
+  playerId: string,
+  unitId: string,
+  dieValue: number
+): AvailableAction[] {
+  const player = game.players[playerId];
+  const actions: AvailableAction[] = [];
+
+  const check = (req: string) => {
+    switch (req) {
+      case "any": return true;
+      case "1+": return dieValue >= 1;
+      case "2+": return dieValue >= 2;
+      case "3+": return dieValue >= 3;
+      case "4+": return dieValue >= 4;
+      case "5+": return dieValue >= 5;
+      case "6": return dieValue === 6;
+      default: return true;
+    }
+  };
+
+  if (player.ship.id === unitId) {
+    // Ship actions
+    if (check("3+")) actions.push({ type: "burn-small", label: "Burn (S)", description: "Add Short thrust" });
+    if (check("5+")) actions.push({ type: "burn-big", label: "Burn (M)", description: "Add Medium thrust" });
+    if (dieValue === 6) actions.push({ type: "burn-max", label: "Burn (L)", description: "Add Long thrust" });
+    actions.push({ type: "launch", label: "Launch", description: "Deploy crew from ship" });
+    actions.push({ type: "recall", label: "Recall", description: "Reel in tethered crew" });
+    actions.push({ type: "stow", label: "Stow", description: "Load adjacent salvage" });
+    if (check("1+")) actions.push({ type: "scan", label: "Scan", description: "Reveal face-down element" });
+  } else {
+    // Crew actions
+    const crew = Object.values(player.crews).find((c) => c.id === unitId);
+    if (!crew) return actions;
+
+    // Generic
+    actions.push({ type: "crawl", label: "Crawl", description: "Move along terrain" });
+    if (check("2+")) actions.push({ type: "push-off", label: "Push Off", description: "Leave terrain with Short velocity" });
+    if (check("4+")) actions.push({ type: "thruster-burn", label: "Thruster", description: "Add thrust in space" });
+    actions.push({ type: "haul", label: "Haul", description: "Move along tether" });
+    actions.push({ type: "rig-tether", label: "Rig Tether", description: "Connect two points" });
+    actions.push({ type: "scavenge", label: "Scavenge", description: "Grab adjacent debris" });
+    actions.push({ type: "brace", label: "Brace", description: "Block one external force" });
+    actions.push({ type: "shove", label: "Shove", description: "Push adjacent entity" });
+    if (check("3+")) actions.push({ type: "tackle", label: "Tackle", description: "Grab rival crew" });
+    actions.push({ type: "embark", label: "Embark", description: "Return to own ship" });
+
+    // Role-locked
+    if (crew.role === "Cutter" && check("3+")) actions.push({ type: "cut", label: "Cut", description: "Sever salvage or tether" });
+    if (crew.role === "Grappler" && check("3+")) actions.push({ type: "grapple", label: "Grapple", description: "Hook target within 6\"" });
+    if (crew.role === "Breacher" && check("5+")) actions.push({ type: "breach", label: "Breach", description: "Open compartment or rival hold" });
+    if (crew.role === "Hauler") actions.push({ type: "heavy-haul", label: "Heavy Haul", description: "Haul Mass-3 salvage" });
+  }
+
+  return actions;
 }
 
 function DriftPhase() {
@@ -402,15 +517,6 @@ const advanceBtn: React.CSSProperties = {
   fontWeight: "bold",
 };
 
-const selectStyle: React.CSSProperties = {
-  background: "#111122",
-  border: "1px solid #334455",
-  color: "#aabbcc",
-  padding: "3px 6px",
-  fontFamily: "monospace",
-  fontSize: "11px",
-  borderRadius: "3px",
-};
 
 const inputStyle: React.CSSProperties = {
   background: "#111122",
