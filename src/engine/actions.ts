@@ -22,6 +22,7 @@ import {
   dropSpeedTier,
   hasLineOfSight,
   angleBetween,
+  velocityToVec2,
   add,
   sub,
   normalize,
@@ -539,6 +540,10 @@ function resolveBurn(
   const burnVelocity = makeVelocity(burnDirection, effectiveTier);
   ship.velocity = addVelocities(ship.velocity, burnVelocity);
 
+  // Move immediately by the burn displacement
+  const displacement = velocityToVec2(burnVelocity);
+  ship.position = add(ship.position, displacement);
+
   return state;
 }
 
@@ -559,6 +564,10 @@ function resolveLaunch(
   crew.position = { ...player.ship.position };
   crew.velocity = makeVelocity(direction, 1);
   crew.onTerrainId = undefined;
+
+  // Move immediately by the launch displacement
+  const displacement = velocityToVec2(crew.velocity);
+  crew.position = add(crew.position as Vec2, displacement);
 
   return state;
 }
@@ -985,6 +994,12 @@ function resolvePushOff(
 
   crew.onTerrainId = undefined;
 
+  // Move immediately by the push-off displacement
+  if (crew.position !== "embarked") {
+    const displacement = velocityToVec2(crew.velocity);
+    crew.position = add(crew.position as Vec2, displacement);
+  }
+
   return state;
 }
 
@@ -1009,6 +1024,12 @@ function resolveThrusterBurn(
 
   const thrustVel = makeVelocity(direction, tier);
   crew.velocity = addVelocities(crew.velocity, thrustVel);
+
+  // Move immediately by the thrust displacement
+  if (crew.position !== "embarked") {
+    const displacement = velocityToVec2(thrustVel);
+    crew.position = add(crew.position as Vec2, displacement);
+  }
 
   return state;
 }
