@@ -304,13 +304,17 @@ export function PlayfieldScene() {
         nearestEdge = Object.entries(dists).sort((a, b) => a[1] - b[1])[0][0] as "top" | "bottom" | "left" | "right";
       }
 
-      // Check which edges are allowed (opposite-edge rule)
+      // Check which edges are allowed
+      // First player: all 4 edges. After that: only the first edge and its opposite.
       const placedShips = Object.values(game.players).filter((p) => p.ship.placed && p.ship.deployEdge);
-      let allowedEdges: Set<string> | null = null;
+      let allowedEdges: Set<string> | null = null; // null = all allowed
       if (placedShips.length > 0) {
         const firstEdge = placedShips[0].ship.deployEdge!;
         const opposite: Record<string, string> = { top: "bottom", bottom: "top", left: "right", right: "left" };
-        allowedEdges = new Set([firstEdge, opposite[firstEdge]]);
+        // Only the opposite edge is available (first edge is already taken)
+        allowedEdges = new Set([opposite[firstEdge]]);
+        // If same-edge allies exist (3-4 player), also allow first edge
+        allowedEdges.add(firstEdge);
       }
 
       // Draw each edge zone

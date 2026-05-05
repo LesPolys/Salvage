@@ -141,25 +141,20 @@ function reducePlaceShip(state: GameState, playerId: string, position: Vec2): Ga
   const edge = detectEdge(position, halfTable, edgeBuf);
   if (!edge) throw new Error("Ship must be placed within 2\" of a table edge");
 
-  // Enforce opposite-edge rule: if any ship is already placed, this player
-  // must use the opposite edge of the first-placed ship
+  // Opposite-edge rule: first player picks freely, opponents get the opposite edge
   const placedShips = Object.values(next.players)
     .filter((p) => p.ship.placed && p.ship.deployEdge);
   if (placedShips.length > 0) {
+    // Find which edge the first-placed player chose
     const firstEdge = placedShips[0].ship.deployEdge!;
-    const allowedEdge = OPPOSITE_EDGE[firstEdge];
-    if (edge !== firstEdge && edge !== allowedEdge) {
-      throw new Error(`Must place on ${firstEdge} or ${allowedEdge} edge (opposite sides)`);
-    }
-    // If first player took an edge, opponent must take opposite
-    if (placedShips.some((p) => p.ship.deployEdge === edge && p.id !== playerId)) {
-      // Same edge is ok for teammates in 3-4p, but opponent must be opposite
-      // For simplicity: just enforce that you can't be on the same edge as anyone else
-      // unless it's a teammate (not tracked yet). Allow same edge for now.
+    const opposite = OPPOSITE_EDGE[firstEdge];
+    // This player must be on the same edge as an ally OR the opposite edge
+    // Simple rule: only two edges are legal (the first edge and its opposite)
+    if (edge !== firstEdge && edge !== opposite) {
+      throw new Error(`Only ${firstEdge} and ${opposite} edges are available`);
     }
   }
 
-  // Validate: ≥6" from any other placed ship
   // Validate: ≥6" from any other placed ship
   for (const p of Object.values(next.players)) {
     if (p.id === playerId) continue;
@@ -348,8 +343,8 @@ export function createInitialState(seed: string, playerCount: number): GameState
       seed,
       round: 1,
       phase: "deploy",
-      activePlayerId: playerIds[playerIds.length - 1], // reverse turn order: last player first
-      turnOrder: [...playerIds].reverse(), // reverse for deployment
+      activePlayerId: playerIds[0], // first player places first (humans before AI)
+      turnOrder: [...playerIds], // deploy order: humans get edge choice
     },
     players,
     table: {
