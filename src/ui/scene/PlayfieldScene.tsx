@@ -266,12 +266,24 @@ export function PlayfieldScene() {
 
   const selectedEntityId = useGameStore((s) => s.selectedEntityId);
 
-  // Render entities
+  // Render entities — capture old positions BEFORE cleanup
   useEffect(() => {
     if (!sceneRef.current || !game) return;
     const { entityGroup } = sceneRef.current;
+
+    // Save current mesh positions before destroying them
+    const oldPositions = new Map<string, { x: number; y: number; z: number; ry: number }>();
+    entityGroup.traverse((child) => {
+      if (child.userData.entityId) {
+        oldPositions.set(child.userData.entityId, {
+          x: child.position.x, y: child.position.y, z: child.position.z,
+          ry: child.rotation.y,
+        });
+      }
+    });
+
     cleanupEntities(entityGroup);
-    renderEntities(game, entityGroup, selectedEntityId);
+    renderEntities(game, entityGroup, selectedEntityId, oldPositions);
   }, [game, selectedEntityId]);
 
   // Render vector preview arrows during targeting

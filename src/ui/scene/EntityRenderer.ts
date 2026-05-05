@@ -34,21 +34,10 @@ export function getAnimator(): Animator {
 export function renderEntities(
   game: GameState,
   group: THREE.Group,
-  selectedId?: string | null
+  selectedId?: string | null,
+  oldPositions?: Map<string, { x: number; y: number; z: number; ry: number }>
 ): void {
   const animator = getAnimator();
-
-  // Save old positions from animator before clearing meshes
-  const oldPositions = new Map<string, { x: number; y: number; z: number; ry: number }>();
-  for (const child of group.children) {
-    if (child.userData.entityId) {
-      oldPositions.set(child.userData.entityId, {
-        x: child.position.x, y: child.position.y, z: child.position.z,
-        ry: child.rotation.y,
-      });
-    }
-  }
-
   animator.clear();
 
   renderWrecks(game, group);
@@ -64,11 +53,13 @@ export function renderEntities(
     applySelectionHighlight(group, selectedId);
   }
 
-  // Register all entity meshes with animator and set targets
-  for (const child of group.children) {
+  // Register entity meshes with animator and set targets.
+  // Only register top-level entities (direct children with entityId).
+  for (const child of [...group.children]) {
     const eid = child.userData.entityId;
     if (!eid) continue;
 
+    // Save where the renderer placed this mesh (the "correct" new position)
     const targetPos = { x: child.position.x, z: child.position.z };
     const targetRotY = child.rotation.y;
     const targetY = child.position.y;
@@ -76,8 +67,8 @@ export function renderEntities(
     animator.register(eid, child);
     animator.setTarget(eid, targetPos, targetRotY, targetY);
 
-    // If we had an old position, start the mesh there so it lerps
-    const old = oldPositions.get(eid);
+    // If this entity existed before, start at the old position so animator lerps it
+    const old = oldPositions?.get(eid);
     if (old) {
       child.position.set(old.x, old.y, old.z);
       child.rotation.y = old.ry;
