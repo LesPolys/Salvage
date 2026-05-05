@@ -444,31 +444,62 @@ export function PlayfieldScene() {
     thrustLabel.scale.set(1.5, 0.75, 1);
     previewGroup.add(thrustLabel);
 
-    // 3. Result arrow (yellow, tip-to-tail)
+    // 3. Final position marker — where the unit will actually end up
     const thrustVelocity = makeVelocity(thrustDir, thrustTier);
+    const thrustDisplacement = new THREE.Vector3(
+      Math.cos(thrustDir) * thrustInches, 0, Math.sin(thrustDir) * thrustInches
+    );
+    const finalPos = origin.clone().add(thrustDisplacement);
+
+    // Dashed line from current position to final position
+    const pathPoints = [origin.clone(), finalPos.clone()];
+    pathPoints[0].y = 0.1;
+    pathPoints[1].y = 0.1;
+    const pathGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
+    const pathLine = new THREE.Line(pathGeo, new THREE.LineDashedMaterial({
+      color: 0xffcc00, dashSize: 0.5, gapSize: 0.3,
+    }));
+    pathLine.computeLineDistances();
+    previewGroup.add(pathLine);
+
+    // Ground ring at final position
+    const ringGeo = new THREE.RingGeometry(0.8, 1.1, 24);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffcc00, side: THREE.DoubleSide, transparent: true, opacity: 0.6,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(finalPos.x, 0.05, finalPos.z);
+    previewGroup.add(ring);
+
+    // Crosshair at final position
+    const crossSize = 0.6;
+    const crossGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-crossSize, 0, 0), new THREE.Vector3(crossSize, 0, 0),
+      new THREE.Vector3(0, 0, 0), // break
+      new THREE.Vector3(0, 0, -crossSize), new THREE.Vector3(0, 0, crossSize),
+    ]);
+    const cross = new THREE.LineSegments(crossGeo, new THREE.LineBasicMaterial({ color: 0xffcc00 }));
+    cross.position.set(finalPos.x, 0.06, finalPos.z);
+    previewGroup.add(cross);
+
+    // Vertical pole at final position
+    const poleGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 2, 0),
+    ]);
+    const pole = new THREE.Line(poleGeo, new THREE.LineBasicMaterial({
+      color: 0xffcc00, transparent: true, opacity: 0.4,
+    }));
+    pole.position.set(finalPos.x, 0, finalPos.z);
+    previewGroup.add(pole);
+
+    // Speed tier label at final position
     const resultVelocity = addVelocities(curVel, thrustVelocity);
-
-    if (resultVelocity.magnitude > 0) {
-      const resInches = VELOCITY_INCHES[resultVelocity.magnitude] ?? 0;
-      const resDir = new THREE.Vector3(
-        Math.cos(resultVelocity.direction), 0, Math.sin(resultVelocity.direction)
-      ).normalize();
-      const resArrow = new THREE.ArrowHelper(resDir, origin.clone().add(new THREE.Vector3(0, 0.3, 0)), resInches, 0xffcc00, resInches * 0.15, 0.3);
-      previewGroup.add(resArrow);
-
-      const resLabel = makeTextSprite("result", 0xffcc00);
-      const resTip = origin.clone().add(resDir.clone().multiplyScalar(resInches));
-      resLabel.position.copy(resTip).add(new THREE.Vector3(0, 1.2, 0));
-      resLabel.scale.set(1.5, 0.75, 1);
-      previewGroup.add(resLabel);
-
-      // Speed tier label
-      const tierNames = ["", "Short", "Medium", "Long"];
-      const tierLabel = makeTextSprite(tierNames[resultVelocity.magnitude] ?? "", 0xffcc00);
-      tierLabel.position.copy(resTip).add(new THREE.Vector3(0, 0.5, 0));
-      tierLabel.scale.set(2, 1, 1);
-      previewGroup.add(tierLabel);
-    }
+    const tierNames = ["", "Short", "Medium", "Long"];
+    const tierLabel = makeTextSprite(tierNames[resultVelocity.magnitude] ?? "", 0xffcc00);
+    tierLabel.position.set(finalPos.x, 2.2, finalPos.z);
+    tierLabel.scale.set(2.5, 1.25, 1);
+    previewGroup.add(tierLabel);
   }, [targeting, targetingMousePos, game]);
 
   // Cursor style
