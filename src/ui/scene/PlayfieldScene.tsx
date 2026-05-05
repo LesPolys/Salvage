@@ -136,15 +136,6 @@ export function PlayfieldScene() {
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
 
-    // Compass
-    for (const [label, [x, z]] of Object.entries({
-      N: [0, HALF + 1.5], S: [0, -HALF - 1.5], E: [HALF + 1.5, 0], W: [-HALF - 1.5, 0],
-    })) {
-      const sprite = makeTextSprite(label, 0x667788);
-      sprite.position.set(x, 0.5, z);
-      sprite.scale.set(2, 1, 1);
-      scene.add(sprite);
-    }
 
     const entityGroup = new THREE.Group();
     scene.add(entityGroup);
