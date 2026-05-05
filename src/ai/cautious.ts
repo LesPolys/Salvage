@@ -59,14 +59,14 @@ export class CautiousAI implements AIPlayer {
     for (const die of sortedDice) {
       const slot = findBestSlotForDie(state, playerId, die.value, priorities);
       if (slot) {
-        assignments.push({ dieId: die.id, unitId: slot.unitId, slotId: slot.slotId });
-        markSlotTaken(state, playerId, slot.unitId, slot.slotId);
+        assignments.push({ dieId: die.id, unitId: slot.unitId });
+        markSlotTaken(state, playerId, slot.unitId);
       }
     }
 
     this.log({
       type: "assign",
-      candidates: assignments.map((a) => ({ option: `${a.dieId}→${a.slotId}`, score: 1 })),
+      candidates: assignments.map((a) => ({ option: `${a.dieId}→${a.unitId}`, score: 1 })),
       chosen: `${assignments.length} assignments`,
       reason: "Prioritize stow/recall/scan, save high dice for resist",
     });
@@ -78,14 +78,14 @@ export class CautiousAI implements AIPlayer {
     const player = state.players[playerId];
 
     // Activate ship first (stow/recall are valuable and safe)
-    if (player.ship.slots.some((s) => s.assignedDieId)) {
+    if (player.ship.dicePool.length > 0) {
       return player.ship.id;
     }
 
     // Then hauler (closest to ship duties)
     for (const role of ["Hauler", "Cutter", "Breacher", "Grappler"]) {
       const crew = player.crews[role];
-      if (crew && crew.state !== "lost" && crew.slots.some((s) => s.assignedDieId)) {
+      if (crew && crew.state !== "lost" && crew.dicePool.length > 0) {
         return crew.id;
       }
     }
@@ -205,9 +205,8 @@ export class CautiousAI implements AIPlayer {
     const crew = Object.values(player.crews).find((c) => c.id === targetCrewId);
     if (!crew) return { resist: false };
 
-    const eligibleDice = crew.slots
-      .filter((s) => s.assignedDieId)
-      .map((s) => player.dice.find((d) => d.id === s.assignedDieId))
+    const eligibleDice = crew.dicePool
+      .map((dieId) => player.dice.find((d) => d.id === dieId))
       .filter((d) => d && d.state === "assigned" && d.value > attackerDieValue);
 
     if (eligibleDice.length > 0) {
@@ -271,16 +270,14 @@ export class CautiousAI implements AIPlayer {
   }
 }
 
-function markSlotTaken(state: GameState, playerId: string, unitId: EntityId, slotId: string): void {
+function markSlotTaken(state: GameState, playerId: string, unitId: EntityId): void {
   const player = state.players[playerId];
   if (player.ship.id === unitId) {
-    const slot = player.ship.slots.find((s) => s.id === slotId);
-    if (slot) slot.assignedDieId = "pending";
+    player.ship.dicePool.push("pending");
   } else {
     for (const crew of Object.values(player.crews)) {
       if (crew.id === unitId) {
-        const slot = crew.slots.find((s) => s.id === slotId);
-        if (slot) slot.assignedDieId = "pending";
+        crew.dicePool.push("pending");
         break;
       }
     }

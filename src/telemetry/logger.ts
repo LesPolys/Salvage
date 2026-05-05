@@ -144,6 +144,7 @@ function actionToEventType(action: Action): TelemetryEvent["eventType"] {
     case "ROLL_DICE": return "dice-rolled";
     case "REROLL": return "rerolled";
     case "ASSIGN_DIE": return "assigned";
+    case "UNASSIGN_DIE": return "assigned";
     case "REVEAL_ASSIGNMENTS": return "revealed";
     case "ACTIVATE_UNIT": return "activated";
     case "RESOLVE_DIE": return "action-resolved";

@@ -71,7 +71,7 @@ function getEntityInfo(game: GameState, id: EntityId): EntityInfo | null {
           { key: "Velocity", value: velLabel(ship.velocity.magnitude) },
           { key: "Hold", value: `${ship.holdMass}/6 mass` },
           { key: "Anchors", value: `${ship.hullAnchors.filter((a) => a.inUse).length}/${ship.hullAnchors.length} used` },
-          { key: "Slots", value: `${ship.slots.filter((s) => s.assignedDieId).length}/7 assigned` },
+          { key: "Dice", value: `${ship.dicePool.length} assigned` },
         ],
       };
     }

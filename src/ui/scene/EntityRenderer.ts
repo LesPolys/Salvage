@@ -22,7 +22,11 @@ const PLAYER_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12];
 
 // ── Main render function ────────────────────────────────────
 
-export function renderEntities(game: GameState, group: THREE.Group): void {
+export function renderEntities(
+  game: GameState,
+  group: THREE.Group,
+  selectedId?: string | null
+): void {
   renderWrecks(game, group);
   renderAsteroids(game, group);
   renderShips(game, group);
@@ -31,6 +35,39 @@ export function renderEntities(game: GameState, group: THREE.Group): void {
   renderDebris(game, group);
   renderTethers(game, group);
   renderVelocityArrows(game, group);
+
+  if (selectedId) {
+    applySelectionHighlight(group, selectedId);
+  }
+}
+
+function applySelectionHighlight(group: THREE.Group, selectedId: string): void {
+  group.traverse((obj) => {
+    if (obj.userData.entityId === selectedId) {
+      // Add glowing ring beneath the entity
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.6, 0.9, 24),
+        new THREE.MeshBasicMaterial({
+          color: COLORS.selection,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.7,
+        })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(obj.position);
+      ring.position.y = 0.02;
+      ring.userData._selectionRing = true;
+      group.add(ring);
+
+      // Tint the entity with emissive
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        obj.material = obj.material.clone();
+        obj.material.emissive.set(COLORS.selection);
+        obj.material.emissiveIntensity = 0.15;
+      }
+    }
+  });
 }
 
 export function cleanupEntities(group: THREE.Group): void {

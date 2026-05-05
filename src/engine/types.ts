@@ -38,7 +38,7 @@ export interface Die {
   id: string;
   value: DieValue;
   state: DieState;
-  assignedTo?: { unitId: EntityId; slotId: string };
+  assignedTo?: EntityId; // unit ID this die is assigned to
 }
 
 export type DieRequirement = "any" | "1+" | "2+" | "3+" | "4+" | "5+" | "6";
@@ -57,7 +57,6 @@ export type ShipSlotId =
 export interface ShipSlot {
   id: ShipSlotId;
   dieRequirement: DieRequirement;
-  assignedDieId?: string;
 }
 
 export interface Anchor {
@@ -74,7 +73,8 @@ export interface Ship {
   hold: Salvage[];
   holdMass: number; // computed; max 6
   hullAnchors: Anchor[];
-  slots: ShipSlot[];
+  slots: ShipSlot[]; // available actions + requirements
+  dicePool: string[]; // die IDs assigned to this ship
 }
 
 // ── Crew ────────────────────────────────────────────────────
@@ -86,7 +86,6 @@ export interface CrewSlot {
   id: string;
   isRoleLocked: boolean;
   dieRequirement: DieRequirement;
-  assignedDieId?: string;
 }
 
 export interface Crew {
@@ -99,7 +98,8 @@ export interface Crew {
   state: CrewState;
   grappledWithId?: EntityId;
   tetherIds: string[];
-  slots: CrewSlot[];
+  slots: CrewSlot[]; // available actions + requirements
+  dicePool: string[]; // die IDs assigned to this crew
   onTerrainId?: EntityId;
 }
 
@@ -283,12 +283,19 @@ export type Action =
       type: "ASSIGN_DIE";
       playerId: string;
       dieId: string;
-      slotId: string;
       unitId: EntityId;
     }
+  | { type: "UNASSIGN_DIE"; playerId: string; dieId: string }
   | { type: "REVEAL_ASSIGNMENTS" }
   | { type: "ACTIVATE_UNIT"; playerId: string; unitId: EntityId }
-  | { type: "RESOLVE_DIE"; dieId: string; parameters: Record<string, unknown> }
+  | {
+      type: "RESOLVE_DIE";
+      playerId: string;
+      unitId: EntityId;
+      dieId: string;
+      actionType: ActionType;
+      parameters: Record<string, unknown>;
+    }
   | {
       type: "RESIST";
       targetCrewId: EntityId;

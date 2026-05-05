@@ -9,6 +9,7 @@ import type {
   DieValue,
   SpeedTier,
   Velocity,
+  ActionType,
 } from "./types";
 import { RULES } from "../config/rules";
 import {
@@ -90,13 +91,12 @@ function severTethersOnSalvage(state: GameState, salvageId: EntityId): GameState
   return state;
 }
 
-// ── ASSIGN_DIE ──────────────────────────────────────────────
+// ── ASSIGN_DIE (dice-as-resource: assign to unit pool, not action slot) ──
 
 export function reduceAssignDie(
   state: GameState,
   playerId: string,
   dieId: string,
-  slotId: string,
   unitId: EntityId
 ): GameState {
   if (state.meta.phase !== "assign")
@@ -109,37 +109,64 @@ export function reduceAssignDie(
   if (!die) throw new Error(`Unknown die: ${dieId}`);
   if (die.state !== "rolled") throw new Error(`Die ${dieId} is not in rolled state`);
 
-  // Find the slot — could be on ship or crew
-  let slotFound = false;
-
+  // Validate unit belongs to player
+  let unitFound = false;
   if (player.ship.id === unitId) {
-    const slot = player.ship.slots.find((s) => s.id === slotId);
-    if (!slot) throw new Error(`Unknown ship slot: ${slotId}`);
-    if (slot.assignedDieId) throw new Error(`Slot ${slotId} already has a die`);
-    if (!meetsRequirement(die.value, slot.dieRequirement))
-      throw new Error(`Die value ${die.value} doesn't meet requirement ${slot.dieRequirement}`);
-    slot.assignedDieId = dieId;
-    slotFound = true;
+    player.ship.dicePool.push(dieId);
+    unitFound = true;
   } else {
     for (const crew of Object.values(player.crews)) {
       if (crew.id === unitId) {
         if (crew.state === "lost") throw new Error(`Cannot assign to lost crew`);
-        const slot = crew.slots.find((s) => s.id === slotId);
-        if (!slot) throw new Error(`Unknown crew slot: ${slotId}`);
-        if (slot.assignedDieId) throw new Error(`Slot ${slotId} already has a die`);
-        if (!meetsRequirement(die.value, slot.dieRequirement))
-          throw new Error(`Die value ${die.value} doesn't meet requirement ${slot.dieRequirement}`);
-        slot.assignedDieId = dieId;
-        slotFound = true;
+        crew.dicePool.push(dieId);
+        unitFound = true;
         break;
       }
     }
   }
 
-  if (!slotFound) throw new Error(`Unit ${unitId} not found for player ${playerId}`);
+  if (!unitFound) throw new Error(`Unit ${unitId} not found for player ${playerId}`);
 
   die.state = "assigned";
-  die.assignedTo = { unitId, slotId };
+  die.assignedTo = unitId;
+
+  return next;
+}
+
+// ── UNASSIGN_DIE (move die back to pool) ────────────────────
+
+export function reduceUnassignDie(
+  state: GameState,
+  playerId: string,
+  dieId: string
+): GameState {
+  if (state.meta.phase !== "assign")
+    throw new Error(`Cannot unassign dice in phase: ${state.meta.phase}`);
+
+  const next = cloneState(state);
+  const player = findPlayer(next, playerId);
+
+  const die = player.dice.find((d) => d.id === dieId);
+  if (!die) throw new Error(`Unknown die: ${dieId}`);
+  if (die.state !== "assigned") throw new Error(`Die ${dieId} is not assigned`);
+
+  // Remove from unit's pool
+  const unitId = die.assignedTo;
+  if (unitId) {
+    if (player.ship.id === unitId) {
+      player.ship.dicePool = player.ship.dicePool.filter((id) => id !== dieId);
+    } else {
+      for (const crew of Object.values(player.crews)) {
+        if (crew.id === unitId) {
+          crew.dicePool = crew.dicePool.filter((id) => id !== dieId);
+          break;
+        }
+      }
+    }
+  }
+
+  die.state = "rolled";
+  die.assignedTo = undefined;
 
   return next;
 }
@@ -229,16 +256,10 @@ function resetForNewRound(state: GameState): void {
     player.dice = [];
     player.rerollsRemaining = 0;
 
-    // Clear ship slots
-    for (const slot of player.ship.slots) {
-      slot.assignedDieId = undefined;
-    }
-
-    // Clear crew slots
+    // Clear dice pools
+    player.ship.dicePool = [];
     for (const crew of Object.values(player.crews)) {
-      for (const slot of crew.slots) {
-        slot.assignedDieId = undefined;
-      }
+      crew.dicePool = [];
     }
   }
 
@@ -271,12 +292,12 @@ export function reduceActivateUnit(
   let hasDice = false;
 
   if (player.ship.id === unitId) {
-    hasDice = player.ship.slots.some((s) => s.assignedDieId);
+    hasDice = player.ship.dicePool.length > 0;
   } else {
     for (const crew of Object.values(player.crews)) {
       if (crew.id === unitId) {
         if (crew.state === "lost") throw new Error("Cannot activate lost crew");
-        hasDice = crew.slots.some((s) => s.assignedDieId);
+        hasDice = crew.dicePool.length > 0;
         break;
       }
     }
@@ -316,13 +337,13 @@ export function advanceActivePlayer(state: GameState): GameState {
 function playerHasUnactivatedDice(state: GameState, playerId: string): boolean {
   const player = state.players[playerId];
 
-  // Check ship slots
-  if (player.ship.slots.some((s) => s.assignedDieId)) return true;
+  // Check ship dice pool
+  if (player.ship.dicePool.length > 0) return true;
 
-  // Check crew slots
+  // Check crew dice pools
   for (const crew of Object.values(player.crews)) {
     if (crew.state === "lost") continue;
-    if (crew.slots.some((s) => s.assignedDieId)) return true;
+    if (crew.dicePool.length > 0) return true;
   }
 
   return false;
@@ -338,53 +359,82 @@ export function anyPlayerHasUnactivatedDice(state: GameState): boolean {
 
 export function reduceResolveDie(
   state: GameState,
+  playerId: string,
+  unitId: EntityId,
   dieId: string,
+  actionType: ActionType,
   parameters: Record<string, unknown>
 ): GameState {
   if (state.meta.phase !== "resolve")
     throw new Error(`Cannot resolve die in phase: ${state.meta.phase}`);
 
   const next = cloneState(state);
+  const player = findPlayer(next, playerId);
 
-  // Find the die and its assignment
-  let die = null;
-  let ownerPlayer = null;
-
-  for (const player of Object.values(next.players)) {
-    const found = player.dice.find((d) => d.id === dieId);
-    if (found) {
-      die = found;
-      ownerPlayer = player;
-      break;
-    }
-  }
-
+  // Find the die
+  const die = player.dice.find((d) => d.id === dieId);
   if (!die) throw new Error(`Unknown die: ${dieId}`);
   if (die.state !== "assigned") throw new Error(`Die ${dieId} is not in assigned state`);
-  if (!die.assignedTo) throw new Error(`Die ${dieId} has no assignment`);
+  if (die.assignedTo !== unitId)
+    throw new Error(`Die ${dieId} is not assigned to unit ${unitId}`);
 
-  const { unitId, slotId } = die.assignedTo;
-  const actionType = parameters.actionType as string;
+  // Validate die meets requirement for the chosen action
+  const slot = getActionSlot(next, playerId, unitId, actionType);
+  if (slot && !meetsRequirement(die.value, slot.dieRequirement)) {
+    throw new Error(`Die value ${die.value} doesn't meet requirement ${slot.dieRequirement} for ${actionType}`);
+  }
 
-  // Mark die as spent
+  // Mark die as spent and remove from unit pool
   die.state = "spent";
-
-  // Clear the slot
-  clearSlot(next, ownerPlayer!, unitId, slotId);
+  removeFromDicePool(next, playerId, unitId, dieId);
 
   // Dispatch to action resolver
-  return resolveAction(next, ownerPlayer!.id, unitId, slotId, die.value as DieValue, actionType, parameters);
+  return resolveAction(next, playerId, unitId, "", die.value as DieValue, actionType as string, parameters);
 }
 
-function clearSlot(state: GameState, player: typeof state.players[string], unitId: EntityId, slotId: string): void {
+/** Find the slot definition for an action to check die requirements */
+function getActionSlot(
+  state: GameState,
+  playerId: string,
+  unitId: EntityId,
+  actionType: ActionType
+): { dieRequirement: DieRequirement } | null {
+  const player = state.players[playerId];
+
+  // Ship actions have explicit slots
   if (player.ship.id === unitId) {
-    const slot = player.ship.slots.find((s) => s.id === slotId);
-    if (slot) slot.assignedDieId = undefined;
+    const slot = player.ship.slots.find((s) => s.id === actionType);
+    if (slot) return slot;
+  }
+
+  // Crew: check role-locked and generic action requirements
+  for (const crew of Object.values(player.crews)) {
+    if (crew.id !== unitId) continue;
+    // Role-locked actions
+    const roleActions: Record<string, DieRequirement> = {
+      "cut": "3+", "grapple": "3+", "breach": "5+", "heavy-haul": "any",
+    };
+    if (actionType in roleActions) return { dieRequirement: roleActions[actionType] };
+    // Generic crew actions
+    const genericActions: Record<string, DieRequirement> = {
+      "crawl": "any", "push-off": "2+", "thruster-burn": "4+", "haul": "any",
+      "rig-tether": "any", "scavenge": "1+", "brace": "any", "shove": "any",
+      "tackle": "3+", "embark": "any", "self-tether": "any",
+    };
+    if (actionType in genericActions) return { dieRequirement: genericActions[actionType] };
+  }
+
+  return null;
+}
+
+function removeFromDicePool(state: GameState, playerId: string, unitId: EntityId, dieId: string): void {
+  const player = state.players[playerId];
+  if (player.ship.id === unitId) {
+    player.ship.dicePool = player.ship.dicePool.filter((id) => id !== dieId);
   } else {
     for (const crew of Object.values(player.crews)) {
       if (crew.id === unitId) {
-        const slot = crew.slots.find((s) => s.id === slotId);
-        if (slot) slot.assignedDieId = undefined;
+        crew.dicePool = crew.dicePool.filter((id) => id !== dieId);
         break;
       }
     }
@@ -1259,16 +1309,14 @@ function resolveEmbark(
   }
   crew.carrying = [];
 
-  // Forfeit remaining dice on this crew
-  for (const slot of crew.slots) {
-    if (slot.assignedDieId) {
-      const die = player.dice.find((d) => d.id === slot.assignedDieId);
-      if (die && die.state === "assigned") {
-        die.state = "forfeit";
-      }
-      slot.assignedDieId = undefined;
+  // Forfeit remaining dice in this crew's pool
+  for (const dieId of crew.dicePool) {
+    const die = player.dice.find((d) => d.id === dieId);
+    if (die && die.state === "assigned") {
+      die.state = "forfeit";
     }
   }
+  crew.dicePool = [];
 
   return state;
 }
@@ -1294,8 +1342,8 @@ export function reduceResist(
 
   // Spend the resist die regardless of outcome
   resistDie.state = "spent";
-  const resistSlot = crew.slots.find((s) => s.assignedDieId === resistDieId);
-  if (resistSlot) resistSlot.assignedDieId = undefined;
+  // Remove from crew's dice pool
+  crew.dicePool = crew.dicePool.filter((id) => id !== resistDieId);
 
   // Resist succeeds if resist value > attacker value (ties go to attacker)
   // The caller checks the return state to determine if the action proceeds

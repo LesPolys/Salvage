@@ -191,13 +191,15 @@ export function PlayfieldScene() {
     }
   }, [showGrid]);
 
-  // Render entities when game state changes
+  const selectedEntityId = useGameStore((s) => s.selectedEntityId);
+
+  // Render entities when game state or selection changes
   useEffect(() => {
     if (!sceneRef.current || !game) return;
     const { entityGroup } = sceneRef.current;
     cleanupEntities(entityGroup);
-    renderEntities(game, entityGroup);
-  }, [game]);
+    renderEntities(game, entityGroup, selectedEntityId);
+  }, [game, selectedEntityId]);
 
   return (
     <div

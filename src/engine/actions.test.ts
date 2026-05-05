@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reduce, createInitialState } from "./state";
-import type { GameState } from "./types";
+import type { GameState, ActionType } from "./types";
 import { meetsRequirement } from "./actions";
 
 // Helper: get a state ready for resolve phase with a die assigned
@@ -59,7 +59,6 @@ describe("Burn actions", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "burn-small",
       unitId: player.ship.id,
     });
 
@@ -69,8 +68,11 @@ describe("Burn actions", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: player.ship.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "burn-small" },
+      actionType: "burn-small" as ActionType,
+      parameters: {},
     });
 
     expect(state.players["player-0"].ship.velocity.magnitude).toBeGreaterThan(0);
@@ -92,7 +94,6 @@ describe("Burn actions", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "burn-big",
       unitId: player.ship.id,
     });
 
@@ -101,8 +102,11 @@ describe("Burn actions", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: player.ship.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "burn-big" },
+      actionType: "burn-big" as ActionType,
+      parameters: {},
     });
 
     // burn-big is Medium, but mass penalty drops it to Short
@@ -122,7 +126,6 @@ describe("Launch action", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "launch",
       unitId: player.ship.id,
     });
 
@@ -131,8 +134,11 @@ describe("Launch action", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: player.ship.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "launch", crewId: cutterCrew.id, direction: 0 },
+      actionType: "launch" as ActionType,
+      parameters: { crewId: cutterCrew.id, direction: 0 },
     });
 
     const launched = state.players["player-0"].crews["Cutter"];
@@ -163,7 +169,6 @@ describe("Stow action", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "stow",
       unitId: player.ship.id,
     });
 
@@ -172,8 +177,11 @@ describe("Stow action", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: player.ship.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "stow", salvageId: "loot-1", ejectIds: [] },
+      actionType: "stow" as ActionType,
+      parameters: { salvageId: "loot-1", ejectIds: [] },
     });
 
     expect(state.players["player-0"].ship.hold).toHaveLength(1);
@@ -199,7 +207,6 @@ describe("Embark action", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "cutter-generic-0",
       unitId: cutter.id,
     });
 
@@ -208,8 +215,11 @@ describe("Embark action", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: cutter.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "embark" },
+      actionType: "embark" as ActionType,
+      parameters: {},
     });
 
     expect(state.players["player-0"].crews["Cutter"].position).toBe("embarked");
@@ -232,7 +242,6 @@ describe("Push Off action", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "cutter-generic-0",
       unitId: cutter.id,
     });
 
@@ -241,8 +250,11 @@ describe("Push Off action", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: cutter.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "push-off", direction: Math.PI / 2 },
+      actionType: "push-off" as ActionType,
+      parameters: { direction: Math.PI / 2 },
     });
 
     const updated = state.players["player-0"].crews["Cutter"];
@@ -266,7 +278,6 @@ describe("Thruster Burn action", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "cutter-generic-0",
       unitId: cutter.id,
     });
 
@@ -275,8 +286,11 @@ describe("Thruster Burn action", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: cutter.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "thruster-burn", direction: 0 },
+      actionType: "thruster-burn" as ActionType,
+      parameters: { direction: 0 },
     });
 
     const updated = state.players["player-0"].crews["Cutter"];

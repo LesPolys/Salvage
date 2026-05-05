@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reduce, createInitialState } from "./state";
-import type { GameState } from "./types";
+import type { GameState, ActionType } from "./types";
 import { computeFinalScores, markEndOfGameLostCrew } from "./scoring";
 import { resolveSelfTether } from "./actions";
 
@@ -32,7 +32,6 @@ describe("role-lock validation", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "grappler-generic-0",
       unitId: grappler.id,
     });
 
@@ -42,8 +41,11 @@ describe("role-lock validation", () => {
     expect(() =>
       reduce(state, {
         type: "RESOLVE_DIE",
+        playerId: "player-0",
+        unitId: grappler.id,
         dieId: player.dice[0].id,
-        parameters: { actionType: "cut", targetType: "salvage", targetId: "s1" },
+        actionType: "cut" as ActionType,
+        parameters: { targetType: "salvage", targetId: "s1" },
       })
     ).toThrow("Cutter");
   });
@@ -62,7 +64,6 @@ describe("role-lock validation", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "hauler-generic-0",
       unitId: hauler.id,
     });
 
@@ -72,8 +73,11 @@ describe("role-lock validation", () => {
     expect(() =>
       reduce(state, {
         type: "RESOLVE_DIE",
+        playerId: "player-0",
+        unitId: hauler.id,
         dieId: player.dice[0].id,
-        parameters: { actionType: "breach", targetType: "compartment", targetId: "c1" },
+        actionType: "breach" as ActionType,
+        parameters: { targetType: "compartment", targetId: "c1" },
       })
     ).toThrow("Breacher");
   });
@@ -92,7 +96,6 @@ describe("role-lock validation", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "cutter-generic-0",
       unitId: cutter.id,
     });
 
@@ -102,8 +105,11 @@ describe("role-lock validation", () => {
     expect(() =>
       reduce(state, {
         type: "RESOLVE_DIE",
+        playerId: "player-0",
+        unitId: cutter.id,
         dieId: player.dice[0].id,
-        parameters: { actionType: "heavy-haul" },
+        actionType: "heavy-haul" as ActionType,
+        parameters: {},
       })
     ).toThrow("Hauler");
   });
@@ -144,7 +150,6 @@ describe("haul mass cap", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "cutter-generic-0",
       unitId: cutter.id,
     });
 
@@ -154,8 +159,11 @@ describe("haul mass cap", () => {
     expect(() =>
       reduce(state, {
         type: "RESOLVE_DIE",
+        playerId: "player-0",
+        unitId: cutter.id,
         dieId: player.dice[0].id,
-        parameters: { actionType: "haul" },
+        actionType: "haul" as ActionType,
+        parameters: {},
       })
     ).toThrow("Mass-3");
   });
@@ -237,7 +245,6 @@ describe("burn direction from params", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: player.dice[0].id,
-      slotId: "burn-small",
       unitId: player.ship.id,
     });
 
@@ -247,8 +254,11 @@ describe("burn direction from params", () => {
     const direction = Math.PI / 4; // 45 degrees
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: player.ship.id,
       dieId: player.dice[0].id,
-      parameters: { actionType: "burn-small", direction },
+      actionType: "burn-small" as ActionType,
+      parameters: { direction },
     });
 
     const vel = state.players["player-0"].ship.velocity;
@@ -291,7 +301,6 @@ describe("brace consumption", () => {
       type: "ASSIGN_DIE",
       playerId: "player-1",
       dieId: p1.dice[0].id,
-      slotId: "hauler-generic-0",
       unitId: p1.crews["Hauler"].id,
     });
 
@@ -302,7 +311,6 @@ describe("brace consumption", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: p0.dice[0].id,
-      slotId: "cutter-generic-0",
       unitId: p0.crews["Cutter"].id,
     });
 
@@ -312,15 +320,21 @@ describe("brace consumption", () => {
     // Resolve brace first
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-1",
+      unitId: p1.crews["Hauler"].id,
       dieId: p1.dice[0].id,
-      parameters: { actionType: "brace" },
+      actionType: "brace" as ActionType,
+      parameters: {},
     });
 
     // Now shove — should be absorbed by brace
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: p0.crews["Cutter"].id,
       dieId: p0.dice[0].id,
-      parameters: { actionType: "shove", targetId: p1.crews["Hauler"].id, direction: 0 },
+      actionType: "shove" as ActionType,
+      parameters: { targetId: p1.crews["Hauler"].id, direction: 0 },
     });
 
     // Hauler should not have gained velocity
@@ -395,7 +409,6 @@ describe("scan per-player visibility", () => {
       type: "ASSIGN_DIE",
       playerId: "player-0",
       dieId: p0.dice[0].id,
-      slotId: "scan",
       unitId: p0.ship.id,
     });
 
@@ -404,8 +417,11 @@ describe("scan per-player visibility", () => {
 
     state = reduce(state, {
       type: "RESOLVE_DIE",
+      playerId: "player-0",
+      unitId: p0.ship.id,
       dieId: p0.dice[0].id,
-      parameters: { actionType: "scan", targetId: "scan-target" },
+      actionType: "scan" as ActionType,
+      parameters: { targetId: "scan-target" },
     });
 
     const scanned = state.table.looseSalvage.find((s) => s.id === "scan-target")!;

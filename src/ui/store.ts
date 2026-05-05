@@ -20,7 +20,7 @@ export interface UIState {
   showGrid: boolean;
 
   // Actions
-  startGame: (seed: string, playerCount: number, playerNames?: string[]) => void;
+  startGame: (seed: string, playerCount: number, playerNames?: string[], aiConfig?: Array<{ isAI: boolean; personality?: string }>) => void;
   dispatch: (action: Action) => void;
   selectEntity: (id: EntityId | null) => void;
   hoverEntity: (id: EntityId | null) => void;
@@ -43,8 +43,8 @@ export const useGameStore = create<UIState>((set, get) => ({
   showDebug: false,
   showGrid: true,
 
-  startGame: (seed, playerCount, playerNames) => {
-    const game = setupGame(seed, playerCount, playerNames);
+  startGame: (seed, playerCount, playerNames, aiConfig) => {
+    const game = setupGame(seed, playerCount, playerNames, aiConfig as Parameters<typeof setupGame>[3]);
     set({ game, isStarted: true, selectedEntityId: null });
   },
 

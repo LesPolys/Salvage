@@ -174,7 +174,6 @@ function runAssignPhase(
           type: "ASSIGN_DIE",
           playerId: pid,
           dieId: assignment.dieId,
-          slotId: assignment.slotId,
           unitId: assignment.unitId,
         };
         const next = reduce(state, action);
@@ -213,7 +212,7 @@ function runResolvePhase(
 
     // Find any assigned dice
     const assignedDie = player.dice.find((d) => d.state === "assigned");
-    if (!assignedDie || !assignedDie.assignedTo) {
+    if (!assignedDie || assignedDie.assignedTo === undefined) {
       // No dice for this player — check if anyone else has dice
       let anyoneHasDice = false;
       for (const p of Object.values(state.players)) {
@@ -233,7 +232,7 @@ function runResolvePhase(
     const decision = ais[pid].decideAction(
       state,
       pid,
-      assignedDie.assignedTo.unitId,
+      assignedDie.assignedTo!,
       assignedDie.id,
       assignedDie.value
     );
@@ -241,8 +240,11 @@ function runResolvePhase(
     try {
       const action: Action = {
         type: "RESOLVE_DIE",
+        playerId: pid,
+        unitId: assignedDie.assignedTo!,
         dieId: assignedDie.id,
-        parameters: { ...decision.parameters, actionType: decision.actionType },
+        actionType: decision.actionType,
+        parameters: { ...decision.parameters },
       };
       const next = reduce(state, action);
       logger.logEvent(state, next, action);
@@ -251,8 +253,7 @@ function runResolvePhase(
     } catch {
       // Action failed — mark die as spent manually
       assignedDie.state = "spent";
-      const slot = findSlotWithDie(state, pid, assignedDie.id);
-      if (slot) slot.assignedDieId = undefined;
+      removeDieFromPool(state, pid, assignedDie.id);
     }
   }
 
@@ -303,17 +304,12 @@ function advancePhase(
   }
 }
 
-function findSlotWithDie(state: GameState, playerId: string, dieId: string) {
+function removeDieFromPool(state: GameState, playerId: string, dieId: string) {
   const player = state.players[playerId];
-  for (const slot of player.ship.slots) {
-    if (slot.assignedDieId === dieId) return slot;
-  }
+  player.ship.dicePool = player.ship.dicePool.filter((id) => id !== dieId);
   for (const crew of Object.values(player.crews)) {
-    for (const slot of crew.slots) {
-      if (slot.assignedDieId === dieId) return slot;
-    }
+    crew.dicePool = crew.dicePool.filter((id) => id !== dieId);
   }
-  return null;
 }
 
 // ── Batch simulation ────────────────────────────────────────

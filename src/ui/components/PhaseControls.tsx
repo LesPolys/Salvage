@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useGameStore } from "../store";
-import type { DieValue } from "../../engine/types";
-import { meetsRequirement } from "../../engine/actions";
+import type { ActionType } from "../../engine/types";
 
 export function PhaseControls() {
   const game = useGameStore((s) => s.game);
@@ -65,42 +64,29 @@ function AssignPhase() {
 
   const unassignedDice = player.dice.filter((d) => d.state === "rolled");
 
-  const allSlots: Array<{ unitId: string; slotId: string; label: string; req: string }> = [];
+  const allUnits: Array<{ unitId: string; label: string }> = [];
 
-  // Ship slots
-  for (const slot of player.ship.slots) {
-    if (!slot.assignedDieId) {
-      allSlots.push({
-        unitId: player.ship.id,
-        slotId: slot.id,
-        label: `Ship: ${slot.id}`,
-        req: slot.dieRequirement,
-      });
-    }
-  }
+  // Ship
+  allUnits.push({
+    unitId: player.ship.id,
+    label: `Ship`,
+  });
 
-  // Crew slots
+  // Crews
   for (const crew of Object.values(player.crews)) {
     if (crew.state === "lost") continue;
-    for (const slot of crew.slots) {
-      if (!slot.assignedDieId) {
-        allSlots.push({
-          unitId: crew.id,
-          slotId: slot.id,
-          label: `${crew.role}: ${slot.id}`,
-          req: slot.dieRequirement,
-        });
-      }
-    }
+    allUnits.push({
+      unitId: crew.id,
+      label: `${crew.role}`,
+    });
   }
 
-  const handleAssign = (unitId: string, slotId: string) => {
+  const handleAssign = (unitId: string) => {
     if (!selectedDie) return;
     dispatch({
       type: "ASSIGN_DIE",
       playerId: selectedPlayer,
       dieId: selectedDie,
-      slotId,
       unitId,
     });
     setSelectedDie(null);
@@ -153,27 +139,21 @@ function AssignPhase() {
       {/* Available slots */}
       {selectedDie && (
         <div>
-          <span style={{ color: "#667788", fontSize: "11px" }}>Assign to slot: </span>
+          <span style={{ color: "#667788", fontSize: "11px" }}>Assign to unit: </span>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}>
-            {allSlots.map((slot) => {
-              const die = player.dice.find((d) => d.id === selectedDie);
-              const canAssign = die ? meetsRequirement(die.value as DieValue, slot.req as "any" | "1+" | "2+" | "3+" | "4+" | "5+" | "6") : false;
-              return (
-                <button
-                  key={`${slot.unitId}-${slot.slotId}`}
-                  onClick={() => handleAssign(slot.unitId, slot.slotId)}
-                  disabled={!canAssign}
-                  style={{
-                    ...actionBtn(canAssign),
-                    fontSize: "10px",
-                    padding: "4px 8px",
-                    opacity: canAssign ? 1 : 0.3,
-                  }}
-                >
-                  {slot.label} ({slot.req})
-                </button>
-              );
-            })}
+            {allUnits.map((unit) => (
+              <button
+                key={unit.unitId}
+                onClick={() => handleAssign(unit.unitId)}
+                style={{
+                  ...actionBtn(true),
+                  fontSize: "10px",
+                  padding: "4px 8px",
+                }}
+              >
+                {unit.label}
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -221,8 +201,15 @@ function ResolvePhase() {
     try {
       params = JSON.parse(actionParams);
     } catch { /* ignore */ }
-    params.actionType = actionType;
-    dispatch({ type: "RESOLVE_DIE", dieId, parameters: params });
+    const die = activePlayer.dice.find((d) => d.id === dieId);
+    dispatch({
+      type: "RESOLVE_DIE",
+      playerId: activePlayer.id,
+      unitId: die?.assignedTo ?? activePlayer.ship.id,
+      dieId,
+      actionType: actionType as ActionType,
+      parameters: params,
+    });
   };
 
   return (
@@ -292,9 +279,9 @@ function ResolvePhase() {
                 onClick={() => handleResolve(die.id)}
                 disabled={!actionType}
                 style={actionBtn(!!actionType)}
-                title={`Die ${die.value} on ${die.assignedTo?.slotId}`}
+                title={`Die ${die.value} on ${die.assignedTo}`}
               >
-                Resolve [{die.value}] on {die.assignedTo?.slotId}
+                Resolve [{die.value}] on {die.assignedTo}
               </button>
             ))}
           </div>

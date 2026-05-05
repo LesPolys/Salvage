@@ -85,7 +85,7 @@ function DieChip({ die }: { die: Die }) {
       cursor: die.state === "rolled" ? "grab" : "default",
       opacity: die.state === "forfeit" ? 0.4 : 1,
     }}
-    title={`${die.value} (${die.state})${die.assignedTo ? ` → ${die.assignedTo.slotId}` : ""}`}
+    title={`${die.value} (${die.state})${die.assignedTo ? ` → ${die.assignedTo}` : ""}`}
     >
       {die.value}
     </div>
@@ -151,9 +151,9 @@ function CrewCards({ player }: { player: Player }) {
              crew.state === "grappled" ? "Grappled" :
              crew.onTerrainId ? "On terrain" : "In space"}
           </div>
-          {crew.slots.filter((s) => s.assignedDieId).length > 0 && (
+          {crew.dicePool.length > 0 && (
             <div style={{ fontSize: "10px", color: "#88aa88", marginTop: "2px" }}>
-              {crew.slots.filter((s) => s.assignedDieId).length} dice
+              {crew.dicePool.length} dice
             </div>
           )}
         </div>

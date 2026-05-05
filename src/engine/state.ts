@@ -4,6 +4,7 @@ import { RNG } from "./rng";
 import { RULES } from "../config/rules";
 import {
   reduceAssignDie,
+  reduceUnassignDie,
   reduceRevealAssignments,
   reduceAdvancePhase,
   reduceActivateUnit,
@@ -36,9 +37,11 @@ export function reduce(state: GameState, action: Action): GameState {
         state,
         action.playerId,
         action.dieId,
-        action.slotId,
         action.unitId
       );
+
+    case "UNASSIGN_DIE":
+      return reduceUnassignDie(state, action.playerId, action.dieId);
 
     case "REVEAL_ASSIGNMENTS":
       return reduceRevealAssignments(state);
@@ -47,7 +50,14 @@ export function reduce(state: GameState, action: Action): GameState {
       return reduceActivateUnit(state, action.playerId, action.unitId);
 
     case "RESOLVE_DIE":
-      return reduceResolveDie(state, action.dieId, action.parameters);
+      return reduceResolveDie(
+        state,
+        action.playerId,
+        action.unitId,
+        action.dieId,
+        action.actionType,
+        action.parameters
+      );
 
     case "RESIST":
       // Find the source action's die value for comparison
@@ -166,14 +176,15 @@ export function createInitialState(seed: string, playerCount: number): GameState
           inUse: false,
         })),
         slots: [
-          { id: "burn-small", dieRequirement: "3+", assignedDieId: undefined },
-          { id: "burn-big", dieRequirement: "5+", assignedDieId: undefined },
-          { id: "burn-max", dieRequirement: "6", assignedDieId: undefined },
-          { id: "launch", dieRequirement: "any", assignedDieId: undefined },
-          { id: "recall", dieRequirement: "any", assignedDieId: undefined },
-          { id: "stow", dieRequirement: "any", assignedDieId: undefined },
-          { id: "scan", dieRequirement: "1+", assignedDieId: undefined },
+          { id: "burn-small", dieRequirement: "3+" },
+          { id: "burn-big", dieRequirement: "5+" },
+          { id: "burn-max", dieRequirement: "6" },
+          { id: "launch", dieRequirement: "any" },
+          { id: "recall", dieRequirement: "any" },
+          { id: "stow", dieRequirement: "any" },
+          { id: "scan", dieRequirement: "1+" },
         ],
+        dicePool: [],
       },
       crews: Object.fromEntries(
         RULES.crew.roles.map((role) => [
@@ -192,15 +203,14 @@ export function createInitialState(seed: string, playerCount: number): GameState
                 id: `${role.toLowerCase()}-locked`,
                 isRoleLocked: true,
                 dieRequirement: getRoleLockedRequirement(role),
-                assignedDieId: undefined,
               },
               {
-                id: `${role.toLowerCase()}-generic-0`,
+                id: `${role.toLowerCase()}-generic`,
                 isRoleLocked: false,
                 dieRequirement: "any" as const,
-                assignedDieId: undefined,
               },
             ],
+            dicePool: [],
             onTerrainId: undefined,
           },
         ])

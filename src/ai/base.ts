@@ -8,7 +8,6 @@ import type {
 export interface Assignment {
   dieId: string;
   unitId: EntityId;
-  slotId: string;
 }
 
 export interface ActionDecision {

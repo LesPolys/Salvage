@@ -175,20 +175,25 @@ export function findBestSlotForDie(
 ): { unitId: EntityId; slotId: string } | null {
   const player = state.players[playerId];
 
+  // Count how many dice are already assigned (or pending) per unit
+  const shipUsed = player.ship.dicePool.length;
+  const shipCapacity = player.ship.slots.length;
+
   // Try priority actions first
   for (const actionPref of priorityActions) {
     // Check ship slots
-    for (const slot of player.ship.slots) {
-      if (slot.assignedDieId) continue;
-      if (slot.id === actionPref && meetsReq(dieValue, slot.dieRequirement)) {
-        return { unitId: player.ship.id, slotId: slot.id };
+    if (shipUsed < shipCapacity) {
+      for (const slot of player.ship.slots) {
+        if (slot.id === actionPref && meetsReq(dieValue, slot.dieRequirement)) {
+          return { unitId: player.ship.id, slotId: slot.id };
+        }
       }
     }
     // Check crew slots
     for (const crew of Object.values(player.crews)) {
       if (crew.state === "lost") continue;
+      if (crew.dicePool.length >= crew.slots.length) continue;
       for (const slot of crew.slots) {
-        if (slot.assignedDieId) continue;
         if (matchesAction(slot.id, actionPref) && meetsReq(dieValue, slot.dieRequirement)) {
           return { unitId: crew.id, slotId: slot.id };
         }
@@ -197,15 +202,18 @@ export function findBestSlotForDie(
   }
 
   // Fallback: any open slot
-  for (const slot of player.ship.slots) {
-    if (!slot.assignedDieId && meetsReq(dieValue, slot.dieRequirement)) {
-      return { unitId: player.ship.id, slotId: slot.id };
+  if (shipUsed < shipCapacity) {
+    for (const slot of player.ship.slots) {
+      if (meetsReq(dieValue, slot.dieRequirement)) {
+        return { unitId: player.ship.id, slotId: slot.id };
+      }
     }
   }
   for (const crew of Object.values(player.crews)) {
     if (crew.state === "lost") continue;
+    if (crew.dicePool.length >= crew.slots.length) continue;
     for (const slot of crew.slots) {
-      if (!slot.assignedDieId && meetsReq(dieValue, slot.dieRequirement)) {
+      if (meetsReq(dieValue, slot.dieRequirement)) {
         return { unitId: crew.id, slotId: slot.id };
       }
     }

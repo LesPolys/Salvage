@@ -58,15 +58,15 @@ export class AggressiveAI implements AIPlayer {
     for (const die of sortedDice) {
       const slot = findBestSlotForDie(state, playerId, die.value, priorities);
       if (slot) {
-        assignments.push({ dieId: die.id, unitId: slot.unitId, slotId: slot.slotId });
+        assignments.push({ dieId: die.id, unitId: slot.unitId });
         // Mark slot as taken (mutating local search state)
-        markSlotTaken(state, playerId, slot.unitId, slot.slotId);
+        markSlotTaken(state, playerId, slot.unitId);
       }
     }
 
     this.log({
       type: "assign",
-      candidates: assignments.map((a) => ({ option: `${a.dieId}→${a.slotId}`, score: 1 })),
+      candidates: assignments.map((a) => ({ option: `${a.dieId}→${a.unitId}`, score: 1 })),
       chosen: `${assignments.length} assignments`,
       reason: "Prioritize launch, burns, and disruption slots",
     });
@@ -79,11 +79,11 @@ export class AggressiveAI implements AIPlayer {
 
     // Activate the unit with the most dice first (maximize impact per activation)
     let bestUnit: EntityId = player.ship.id;
-    let bestCount = player.ship.slots.filter((s) => s.assignedDieId).length;
+    let bestCount = player.ship.dicePool.length;
 
     for (const crew of Object.values(player.crews)) {
       if (crew.state === "lost") continue;
-      const count = crew.slots.filter((s) => s.assignedDieId).length;
+      const count = crew.dicePool.length;
       if (count > bestCount) {
         bestCount = count;
         bestUnit = crew.id;
@@ -206,9 +206,8 @@ export class AggressiveAI implements AIPlayer {
     const crew = Object.values(player.crews).find((c) => c.id === targetCrewId);
     if (!crew) return { resist: false };
 
-    const eligibleDice = crew.slots
-      .filter((s) => s.assignedDieId)
-      .map((s) => player.dice.find((d) => d.id === s.assignedDieId))
+    const eligibleDice = crew.dicePool
+      .map((dieId) => player.dice.find((d) => d.id === dieId))
       .filter((d) => d && d.state === "assigned")
       .filter((d) => d!.value > attackerDieValue + 1); // Only resist if clearly winning
 
@@ -310,16 +309,14 @@ export class AggressiveAI implements AIPlayer {
   }
 }
 
-function markSlotTaken(state: GameState, playerId: string, unitId: EntityId, slotId: string): void {
+function markSlotTaken(state: GameState, playerId: string, unitId: EntityId): void {
   const player = state.players[playerId];
   if (player.ship.id === unitId) {
-    const slot = player.ship.slots.find((s) => s.id === slotId);
-    if (slot) slot.assignedDieId = "pending";
+    player.ship.dicePool.push("pending");
   } else {
     for (const crew of Object.values(player.crews)) {
       if (crew.id === unitId) {
-        const slot = crew.slots.find((s) => s.id === slotId);
-        if (slot) slot.assignedDieId = "pending";
+        crew.dicePool.push("pending");
         break;
       }
     }
