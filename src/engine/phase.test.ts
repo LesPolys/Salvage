@@ -1,36 +1,50 @@
 import { describe, it, expect } from "vitest";
 import { reduce, createInitialState } from "./state";
+import type { GameState } from "./types";
+
+/** Skip deploy: mark all ships placed and set phase to roll */
+function createReadyState(seed: string, playerCount: number): GameState {
+  const state = createInitialState(seed, playerCount);
+  for (const player of Object.values(state.players)) {
+    player.ship.placed = true;
+    player.ship.position = { x: (Math.random() - 0.5) * 20, z: 16 };
+  }
+  state.meta.phase = "roll";
+  state.meta.turnOrder = Object.keys(state.players);
+  state.meta.activePlayerId = state.meta.turnOrder[0];
+  return state;
+}
 
 describe("phase machine", () => {
   it("transitions roll → assign via ADVANCE_PHASE", () => {
-    const state = createInitialState("phase", 2);
+    const state = createReadyState("phase", 2);
     const next = reduce(state, { type: "ADVANCE_PHASE" });
     expect(next.meta.phase).toBe("assign");
   });
 
   it("transitions assign → reveal via REVEAL_ASSIGNMENTS", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "assign";
     state = reduce(state, { type: "REVEAL_ASSIGNMENTS" });
     expect(state.meta.phase).toBe("reveal");
   });
 
   it("transitions reveal → resolve via ADVANCE_PHASE", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "reveal";
     state = reduce(state, { type: "ADVANCE_PHASE" });
     expect(state.meta.phase).toBe("resolve");
   });
 
   it("transitions resolve → drift via ADVANCE_PHASE", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "resolve";
     state = reduce(state, { type: "ADVANCE_PHASE" });
     expect(state.meta.phase).toBe("drift");
   });
 
   it("transitions drift → roll (next round) via ADVANCE_PHASE", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "drift";
     state.meta.round = 1;
     state = reduce(state, { type: "ADVANCE_PHASE" });
@@ -39,7 +53,7 @@ describe("phase machine", () => {
   });
 
   it("transitions drift → scoring on round 6 via ADVANCE_PHASE", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "drift";
     state.meta.round = 6;
     state = reduce(state, { type: "ADVANCE_PHASE" });
@@ -47,20 +61,20 @@ describe("phase machine", () => {
   });
 
   it("transitions scoring → gameover via ADVANCE_PHASE", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "scoring";
     state = reduce(state, { type: "ADVANCE_PHASE" });
     expect(state.meta.phase).toBe("gameover");
   });
 
   it("throws on gameover ADVANCE_PHASE", () => {
-    let state = createInitialState("phase", 2);
+    let state = createReadyState("phase", 2);
     state.meta.phase = "gameover";
     expect(() => reduce(state, { type: "ADVANCE_PHASE" })).toThrow("already over");
   });
 
   it("forfeits unassigned dice on reveal", () => {
-    let state = createInitialState("forfeit", 2);
+    let state = createReadyState("forfeit", 2);
     // Roll dice
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-1" });
@@ -77,7 +91,7 @@ describe("phase machine", () => {
   });
 
   it("computes turn order by score (lowest first)", () => {
-    let state = createInitialState("order", 3);
+    let state = createReadyState("order", 3);
     state.players["player-0"].score = 5;
     state.players["player-1"].score = 2;
     state.players["player-2"].score = 8;
@@ -91,7 +105,7 @@ describe("phase machine", () => {
   });
 
   it("resets dice and slots between rounds", () => {
-    let state = createInitialState("reset", 2);
+    let state = createReadyState("reset", 2);
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-1" });
     expect(state.players["player-0"].dice).toHaveLength(5);
@@ -108,7 +122,7 @@ describe("phase machine", () => {
 
 describe("ASSIGN_DIE", () => {
   function rollAndAssignState() {
-    let state = createInitialState("assign-test", 2);
+    let state = createReadyState("assign-test", 2);
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-1" });
     state = reduce(state, { type: "ADVANCE_PHASE" }); // → assign
@@ -144,7 +158,7 @@ describe("ASSIGN_DIE", () => {
   });
 
   it("rejects assignment outside assign phase", () => {
-    let state = createInitialState("wrong-phase", 2);
+    let state = createReadyState("wrong-phase", 2);
     state = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
     const die = state.players["player-0"].dice[0];
 

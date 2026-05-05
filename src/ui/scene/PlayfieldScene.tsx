@@ -281,7 +281,50 @@ export function PlayfieldScene() {
       previewGroup.remove(child);
     }
 
-    if (!targeting || !targetingMousePos) return;
+    if (!targeting) return;
+
+    // Deploy phase: show deployment zone highlight
+    if (targeting.targetKind === "point" && game?.meta.phase === "deploy") {
+      const edgeBuf = 2; // RULES.table.shipEdgeBuffer
+      // Draw 4 edge zone rectangles (semi-transparent green)
+      const zoneMat = new THREE.MeshBasicMaterial({ color: 0x22aa44, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+      // Top edge
+      const topGeo = new THREE.PlaneGeometry(TABLE_SIZE, edgeBuf);
+      const top = new THREE.Mesh(topGeo, zoneMat);
+      top.rotation.x = -Math.PI / 2;
+      top.position.set(0, 0.03, HALF - edgeBuf / 2);
+      previewGroup.add(top);
+      // Bottom
+      const bot = new THREE.Mesh(topGeo.clone(), zoneMat);
+      bot.rotation.x = -Math.PI / 2;
+      bot.position.set(0, 0.03, -HALF + edgeBuf / 2);
+      previewGroup.add(bot);
+      // Left
+      const sideGeo = new THREE.PlaneGeometry(edgeBuf, TABLE_SIZE);
+      const left = new THREE.Mesh(sideGeo, zoneMat);
+      left.rotation.x = -Math.PI / 2;
+      left.position.set(-HALF + edgeBuf / 2, 0.03, 0);
+      previewGroup.add(left);
+      // Right
+      const right = new THREE.Mesh(sideGeo.clone(), zoneMat);
+      right.rotation.x = -Math.PI / 2;
+      right.position.set(HALF - edgeBuf / 2, 0.03, 0);
+      previewGroup.add(right);
+
+      // Show cursor marker at mouse position
+      if (targetingMousePos) {
+        const marker = new THREE.Mesh(
+          new THREE.RingGeometry(0.8, 1.2, 16),
+          new THREE.MeshBasicMaterial({ color: 0x44cc44, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
+        );
+        marker.rotation.x = -Math.PI / 2;
+        marker.position.set(targetingMousePos.x, 0.05, targetingMousePos.z);
+        previewGroup.add(marker);
+      }
+      return; // Don't draw vector arrows during deploy
+    }
+
+    if (!targetingMousePos) return;
 
     const origin = new THREE.Vector3(targeting.unitPosition.x, ARROW_Y, targeting.unitPosition.z);
     const mouseWorld = targetingMousePos;

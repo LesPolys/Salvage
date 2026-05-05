@@ -76,8 +76,8 @@ export function setupGame(
   // 3. Scatter debris
   state = scatterDebris(state, rng);
 
-  // 4. Place ships (reverse turn order)
-  state = placeShips(state, rng);
+  // 4. Ships are placed by players during the deploy phase (not auto-placed)
+  // The game starts in "deploy" phase — each player clicks to place their ship.
 
   return state;
 }
@@ -271,62 +271,5 @@ function scatterDebris(state: GameState, rng: RNG): GameState {
   return { ...state, table: { ...state.table, debris } };
 }
 
-// ── Ship placement ──────────────────────────────────────────
-
-function placeShips(state: GameState, rng: RNG): GameState {
-  const playerIds = state.meta.turnOrder;
-  const players = { ...state.players };
-  const placedPositions: Vec2[] = [];
-
-  // Reverse turn order for placement
-  const placementOrder = [...playerIds].reverse();
-
-  for (const pid of placementOrder) {
-    const pos = findValidShipPosition(placedPositions, rng);
-    placedPositions.push(pos);
-
-    players[pid] = {
-      ...players[pid],
-      ship: {
-        ...players[pid].ship,
-        position: pos,
-        velocity: { ...ZERO_VELOCITY },
-      },
-    };
-  }
-
-  return { ...state, players };
-}
-
-function findValidShipPosition(existing: Vec2[], rng: RNG): Vec2 {
-  const edgeBuf = RULES.ship.baseSize.z; // within ~2-3" of edge
-  const minSpacing = RULES.table.minShipSpacing;
-
-  for (let attempt = 0; attempt < 100; attempt++) {
-    // Pick a random edge (0=top, 1=right, 2=bottom, 3=left)
-    const edge = rng.nextInt(0, 3);
-    let pos: Vec2;
-
-    switch (edge) {
-      case 0: // top
-        pos = vec2(rng.nextInt(-HALF_TABLE + 4, HALF_TABLE - 4), HALF_TABLE - edgeBuf);
-        break;
-      case 1: // right
-        pos = vec2(HALF_TABLE - edgeBuf, rng.nextInt(-HALF_TABLE + 4, HALF_TABLE - 4));
-        break;
-      case 2: // bottom
-        pos = vec2(rng.nextInt(-HALF_TABLE + 4, HALF_TABLE - 4), -HALF_TABLE + edgeBuf);
-        break;
-      case 3: // left
-        pos = vec2(-HALF_TABLE + edgeBuf, rng.nextInt(-HALF_TABLE + 4, HALF_TABLE - 4));
-        break;
-      default:
-        pos = vec2(0, HALF_TABLE - edgeBuf);
-    }
-
-    const valid = existing.every((p) => distance(p, pos) >= minSpacing);
-    if (valid) return pos;
-  }
-
-  throw new Error("Failed to place ship after 100 attempts");
-}
+// Ship placement is now handled interactively during the deploy phase.
+// See state.ts reducePlaceShip() and sim/headless.ts runDeployPhase().

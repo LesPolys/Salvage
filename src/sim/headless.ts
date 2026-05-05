@@ -8,9 +8,11 @@
  *   const batch = runBatchSimulation({ games: 100, ... });
  */
 
-import type { GameState, Action } from "../engine/types";
+import type { GameState, Action, Vec2 } from "../engine/types";
 import { reduce } from "../engine/state";
 import { setupGame } from "../engine/setup";
+import { RULES } from "../config/rules";
+import { RNG } from "../engine/rng";
 import type { AIPlayer } from "../ai/base";
 import { AggressiveAI } from "../ai/aggressive";
 import { CautiousAI } from "../ai/cautious";
@@ -84,6 +86,9 @@ export function runSimulation(config: SimConfig): SimResult {
 
     try {
       switch (state.meta.phase) {
+        case "deploy":
+          state = runDeployPhase(state, actions, logger);
+          break;
         case "roll":
           state = runRollPhase(state, ais, actions, logger);
           break;
@@ -124,6 +129,43 @@ export function runSimulation(config: SimConfig): SimResult {
     actions,
     durationMs: Date.now() - start,
   };
+}
+
+function runDeployPhase(
+  state: GameState,
+  actions: Action[],
+  logger: TelemetryLogger
+): GameState {
+  const rng = new RNG(state.meta.seed + "-ai-deploy");
+  const halfTable = RULES.table.sizeInches / 2;
+  const edgeBuf = RULES.table.shipEdgeBuffer;
+
+  // Place all ships automatically for AI
+  while (state.meta.phase === "deploy") {
+    const pid = state.meta.activePlayerId;
+    // Pick a random edge position
+    const edge = rng.nextInt(0, 3);
+    let pos: Vec2;
+    switch (edge) {
+      case 0: pos = { x: rng.nextInt(-halfTable + 4, halfTable - 4), z: halfTable - edgeBuf }; break;
+      case 1: pos = { x: halfTable - edgeBuf, z: rng.nextInt(-halfTable + 4, halfTable - 4) }; break;
+      case 2: pos = { x: rng.nextInt(-halfTable + 4, halfTable - 4), z: -halfTable + edgeBuf }; break;
+      default: pos = { x: -halfTable + edgeBuf, z: rng.nextInt(-halfTable + 4, halfTable - 4) }; break;
+    }
+
+    try {
+      const action: Action = { type: "PLACE_SHIP", playerId: pid, position: pos };
+      const next = reduce(state, action);
+      logger.logEvent(state, next, action);
+      actions.push(action);
+      state = next;
+    } catch {
+      // Retry with different position (collision with another ship)
+      continue;
+    }
+  }
+
+  return state;
 }
 
 function runRollPhase(

@@ -1,4 +1,4 @@
-import type { GameState, Action, Die, Player, DieValue } from "./types";
+import type { GameState, Action, Die, Player, DieValue, Vec2 } from "./types";
 import { ZERO_VELOCITY } from "./types";
 import { RNG } from "./rng";
 import { RULES } from "../config/rules";
@@ -26,6 +26,9 @@ function makeDie(id: string, value: DieValue): Die {
  */
 export function reduce(state: GameState, action: Action): GameState {
   switch (action.type) {
+    case "PLACE_SHIP":
+      return reducePlaceShip(state, action.playerId, action.position);
+
     case "ROLL_DICE":
       return reduceRollDice(state, action.playerId);
 
@@ -93,6 +96,71 @@ export function reduce(state: GameState, action: Action): GameState {
       throw new Error(`Unknown action type: ${(_exhaustive as Action).type}`);
     }
   }
+}
+
+function reducePlaceShip(state: GameState, playerId: string, position: Vec2): GameState {
+  if (state.meta.phase !== "deploy")
+    throw new Error(`Cannot place ship in phase: ${state.meta.phase}`);
+  if (state.meta.activePlayerId !== playerId)
+    throw new Error(`Not ${playerId}'s turn to place`);
+
+  const next = cloneState(state);
+  const player = next.players[playerId];
+  if (!player) throw new Error(`Unknown player: ${playerId}`);
+  if (player.ship.placed) throw new Error("Ship already placed");
+
+  // Validate: within deployment zone (within edge buffer of any table edge)
+  const halfTable = RULES.table.sizeInches / 2;
+  const edgeBuf = RULES.table.shipEdgeBuffer;
+  const nearEdge =
+    position.x <= -halfTable + edgeBuf ||
+    position.x >= halfTable - edgeBuf ||
+    position.z <= -halfTable + edgeBuf ||
+    position.z >= halfTable - edgeBuf;
+  if (!nearEdge) throw new Error("Ship must be placed within 2\" of a table edge");
+
+  // Validate: on the table
+  if (Math.abs(position.x) > halfTable || Math.abs(position.z) > halfTable)
+    throw new Error("Ship must be on the table");
+
+  // Validate: ≥6" from any other placed ship
+  for (const p of Object.values(next.players)) {
+    if (p.id === playerId) continue;
+    if (!p.ship.placed) continue;
+    const dx = p.ship.position.x - position.x;
+    const dz = p.ship.position.z - position.z;
+    if (Math.sqrt(dx * dx + dz * dz) < RULES.table.minShipSpacing)
+      throw new Error("Too close to another ship (min 6\" apart)");
+  }
+
+  player.ship.position = { ...position };
+  player.ship.velocity = { direction: 0, magnitude: 0 };
+  player.ship.placed = true;
+
+  // Advance to next player who hasn't placed, or finish deploy
+  const turnOrder = next.meta.turnOrder;
+  const allPlaced = turnOrder.every((pid) => next.players[pid].ship.placed);
+
+  if (allPlaced) {
+    // Deploy done — switch to normal turn order and start round 1
+    const normalOrder = Object.keys(next.players);
+    next.meta.turnOrder = normalOrder;
+    next.meta.activePlayerId = normalOrder[0];
+    next.meta.phase = "roll";
+  } else {
+    // Next unplaced player in reverse turn order
+    const currentIdx = turnOrder.indexOf(playerId);
+    for (let i = 1; i <= turnOrder.length; i++) {
+      const nextIdx = (currentIdx + i) % turnOrder.length;
+      const nextPid = turnOrder[nextIdx];
+      if (!next.players[nextPid].ship.placed) {
+        next.meta.activePlayerId = nextPid;
+        break;
+      }
+    }
+  }
+
+  return next;
 }
 
 function reduceRollDice(state: GameState, playerId: string): GameState {
@@ -185,6 +253,7 @@ export function createInitialState(seed: string, playerCount: number): GameState
           { id: "scan", dieRequirement: "1+" },
         ],
         dicePool: [],
+        placed: false,
       },
       crews: Object.fromEntries(
         RULES.crew.roles.map((role) => [
@@ -225,9 +294,9 @@ export function createInitialState(seed: string, playerCount: number): GameState
     meta: {
       seed,
       round: 1,
-      phase: "roll",
-      activePlayerId: playerIds[0],
-      turnOrder: [...playerIds],
+      phase: "deploy",
+      activePlayerId: playerIds[playerIds.length - 1], // reverse turn order: last player first
+      turnOrder: [...playerIds].reverse(), // reverse for deployment
     },
     players,
     table: {

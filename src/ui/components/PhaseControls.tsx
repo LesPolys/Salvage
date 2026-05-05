@@ -7,6 +7,7 @@ export function PhaseControls() {
   if (!game) return null;
 
   switch (game.meta.phase) {
+    case "deploy": return <DeployPhase />;
     case "roll": return <RollPhase />;
     case "assign": return <AssignPhase />;
     case "reveal": return <RevealPhase />;
@@ -16,6 +17,59 @@ export function PhaseControls() {
     case "gameover": return <GameOverPhase />;
     default: return null;
   }
+}
+
+function DeployPhase() {
+  const game = useGameStore((s) => s.game)!;
+  const targeting = useGameStore((s) => s.targeting);
+  const startTargeting = useGameStore((s) => s.startTargeting);
+
+  const activePlayer = game.players[game.meta.activePlayerId];
+  if (!activePlayer) return null;
+
+  const placedCount = Object.values(game.players).filter((p) => p.ship.placed).length;
+  const totalPlayers = Object.keys(game.players).length;
+
+  // If not already targeting, enter placement targeting mode
+  const handleBeginPlace = () => {
+    startTargeting({
+      actionType: "burn-small" as ActionType, // placeholder — we'll intercept this in the confirm handler
+      unitId: activePlayer.ship.id,
+      dieId: "",
+      playerId: activePlayer.id,
+      unitPosition: { x: 0, z: 0 },
+      currentVelocity: { direction: 0, magnitude: 0 },
+      targetKind: "point",
+    });
+  };
+
+  if (targeting) {
+    return (
+      <div style={controlsStyle}>
+        <div style={phaseTitle}>Deploy — Place Ship</div>
+        <div style={{ color: "#88cc88", fontSize: "12px" }}>
+          <span style={{ color: activePlayer.color, fontWeight: "bold" }}>{activePlayer.name}</span>
+          : Click on the table edge to place your ship. Right-click to cancel.
+        </div>
+        <div style={{ color: "#556677", fontSize: "11px", marginTop: "4px" }}>
+          Must be within 2&quot; of a table edge, at least 6&quot; from other ships.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={controlsStyle}>
+      <div style={phaseTitle}>Deploy Phase ({placedCount}/{totalPlayers} placed)</div>
+      <div style={{ color: "#88aa88", marginBottom: "8px" }}>
+        <span style={{ color: activePlayer.color, fontWeight: "bold" }}>{activePlayer.name}</span>
+        {" "}— place your ship near a table edge.
+      </div>
+      <button onClick={handleBeginPlace} style={advanceBtn}>
+        Place Ship on Table
+      </button>
+    </div>
+  );
 }
 
 function RollPhase() {

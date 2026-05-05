@@ -3,11 +3,24 @@ import { reduce, createInitialState } from "./state";
 import type { GameState, ActionType } from "./types";
 import { meetsRequirement } from "./actions";
 
+/** Skip deploy: mark all ships placed and set phase to roll */
+function createReadyState(seed: string, playerCount: number): GameState {
+  const state = createInitialState(seed, playerCount);
+  for (const player of Object.values(state.players)) {
+    player.ship.placed = true;
+    player.ship.position = { x: (Math.random() - 0.5) * 20, z: 16 };
+  }
+  state.meta.phase = "roll";
+  state.meta.turnOrder = Object.keys(state.players);
+  state.meta.activePlayerId = state.meta.turnOrder[0];
+  return state;
+}
+
 // Helper: get a state ready for resolve phase with a die assigned
 function setupForResolve(
   overrides?: (state: GameState) => void
 ): GameState {
-  let state = createInitialState("action-test", 2);
+  let state = createReadyState("action-test", 2);
 
   // Place ships apart
   state.players["player-0"].ship.position = { x: -10, z: -15 };

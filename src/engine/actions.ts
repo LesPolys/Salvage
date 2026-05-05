@@ -198,6 +198,9 @@ export function reduceAdvancePhase(state: GameState): GameState {
   const next = cloneState(state);
 
   switch (next.meta.phase) {
+    case "deploy":
+      throw new Error("Use PLACE_SHIP to complete deployment");
+
     case "roll":
       next.meta.phase = "assign";
       break;

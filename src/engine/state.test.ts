@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { reduce, createInitialState } from "./state";
+import type { GameState } from "./types";
 import { RULES } from "../config/rules";
+
+/** Skip deploy: mark all ships placed and set phase to roll */
+function createReadyState(seed: string, playerCount: number): GameState {
+  const state = createInitialState(seed, playerCount);
+  for (const player of Object.values(state.players)) {
+    player.ship.placed = true;
+    player.ship.position = { x: (Math.random() - 0.5) * 20, z: 16 };
+  }
+  state.meta.phase = "roll";
+  state.meta.turnOrder = Object.keys(state.players);
+  state.meta.activePlayerId = state.meta.turnOrder[0];
+  return state;
+}
 
 describe("createInitialState", () => {
   it("creates correct number of players", () => {
@@ -8,10 +22,10 @@ describe("createInitialState", () => {
     expect(Object.keys(state.players)).toHaveLength(4);
   });
 
-  it("starts at round 1, roll phase", () => {
+  it("starts at round 1, deploy phase", () => {
     const state = createInitialState("test", 2);
     expect(state.meta.round).toBe(1);
-    expect(state.meta.phase).toBe("roll");
+    expect(state.meta.phase).toBe("deploy");
   });
 
   it("each player has 4 crew with correct roles", () => {
@@ -40,11 +54,18 @@ describe("createInitialState", () => {
       }
     }
   });
+
+  it("ships start unplaced", () => {
+    const state = createInitialState("test", 2);
+    for (const player of Object.values(state.players)) {
+      expect(player.ship.placed).toBe(false);
+    }
+  });
 });
 
 describe("reduce - ROLL_DICE", () => {
   it("gives player 5 dice with values 1-6", () => {
-    const state = createInitialState("test-seed", 2);
+    const state = createReadyState("test-seed", 2);
     const next = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
 
     expect(next.players["player-0"].dice).toHaveLength(5);
@@ -56,8 +77,8 @@ describe("reduce - ROLL_DICE", () => {
   });
 
   it("produces deterministic results from same seed", () => {
-    const s1 = createInitialState("determinism", 2);
-    const s2 = createInitialState("determinism", 2);
+    const s1 = createReadyState("determinism", 2);
+    const s2 = createReadyState("determinism", 2);
 
     const r1 = reduce(s1, { type: "ROLL_DICE", playerId: "player-0" });
     const r2 = reduce(s2, { type: "ROLL_DICE", playerId: "player-0" });
@@ -68,7 +89,7 @@ describe("reduce - ROLL_DICE", () => {
   });
 
   it("does not mutate the original state", () => {
-    const state = createInitialState("immutable", 2);
+    const state = createReadyState("immutable", 2);
     const originalDice = state.players["player-0"].dice;
 
     reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
@@ -79,21 +100,21 @@ describe("reduce - ROLL_DICE", () => {
   });
 
   it("sets rerollsRemaining based on round number", () => {
-    const state = createInitialState("rerolls", 2);
+    const state = createReadyState("rerolls", 2);
     const next = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
     // Round 1 = 0 rerolls
     expect(next.players["player-0"].rerollsRemaining).toBe(0);
   });
 
   it("throws for unknown player", () => {
-    const state = createInitialState("err", 2);
+    const state = createReadyState("err", 2);
     expect(() =>
       reduce(state, { type: "ROLL_DICE", playerId: "ghost" })
     ).toThrow("Unknown player");
   });
 
   it("throws if not in roll phase", () => {
-    const state = createInitialState("phase-err", 2);
+    const state = createReadyState("phase-err", 2);
     state.meta.phase = "assign";
     expect(() =>
       reduce(state, { type: "ROLL_DICE", playerId: "player-0" })
@@ -103,7 +124,7 @@ describe("reduce - ROLL_DICE", () => {
 
 describe("reduce - REROLL", () => {
   it("rerolls selected dice deterministically", () => {
-    const state = createInitialState("reroll-test", 2);
+    const state = createReadyState("reroll-test", 2);
     // Set round to 3 so we get 2 rerolls
     state.meta.round = 3;
     const rolled = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
@@ -126,7 +147,7 @@ describe("reduce - REROLL", () => {
   });
 
   it("throws if rerolling more dice than allowed", () => {
-    const state = createInitialState("too-many", 2);
+    const state = createReadyState("too-many", 2);
     const rolled = reduce(state, { type: "ROLL_DICE", playerId: "player-0" });
     // Round 1 = 0 rerolls
     expect(() =>

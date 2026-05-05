@@ -141,6 +141,7 @@ export class TelemetryLogger {
 
 function actionToEventType(action: Action): TelemetryEvent["eventType"] {
   switch (action.type) {
+    case "PLACE_SHIP": return "assigned";
     case "ROLL_DICE": return "dice-rolled";
     case "REROLL": return "rerolled";
     case "ASSIGN_DIE": return "assigned";

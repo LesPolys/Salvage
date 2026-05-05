@@ -8,6 +8,7 @@ export interface Vec2 {
 export type EntityId = string; // UUID
 
 export type Phase =
+  | "deploy"
   | "roll"
   | "assign"
   | "reveal"
@@ -75,6 +76,7 @@ export interface Ship {
   hullAnchors: Anchor[];
   slots: ShipSlot[]; // available actions + requirements
   dicePool: string[]; // die IDs assigned to this ship
+  placed: boolean; // false until player places during deploy phase
 }
 
 // ── Crew ────────────────────────────────────────────────────
@@ -277,6 +279,7 @@ export interface GameState {
 // ── Reducer Actions ─────────────────────────────────────────
 
 export type Action =
+  | { type: "PLACE_SHIP"; playerId: string; position: Vec2 }
   | { type: "ROLL_DICE"; playerId: string }
   | { type: "REROLL"; playerId: string; dieIds: string[] }
   | {

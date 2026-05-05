@@ -100,21 +100,31 @@ export const useGameStore = create<UIState>((set, get) => ({
   cancelTargeting: () => set({ targeting: null, targetingMousePos: null }),
 
   confirmTargeting: (worldPos) => {
-    const { targeting, dispatch } = get();
+    const { targeting, game, dispatch } = get();
     if (!targeting) return;
 
-    const dx = worldPos.x - targeting.unitPosition.x;
-    const dz = worldPos.z - targeting.unitPosition.z;
-    const direction = Math.atan2(dz, dx);
+    if (game?.meta.phase === "deploy" && targeting.targetKind === "point") {
+      // Deploy phase: place ship at clicked position
+      dispatch({
+        type: "PLACE_SHIP",
+        playerId: targeting.playerId,
+        position: worldPos,
+      });
+    } else {
+      // Direction targeting: compute angle from unit to click point
+      const dx = worldPos.x - targeting.unitPosition.x;
+      const dz = worldPos.z - targeting.unitPosition.z;
+      const direction = Math.atan2(dz, dx);
 
-    dispatch({
-      type: "RESOLVE_DIE",
-      playerId: targeting.playerId,
-      unitId: targeting.unitId,
-      dieId: targeting.dieId,
-      actionType: targeting.actionType,
-      parameters: { direction },
-    });
+      dispatch({
+        type: "RESOLVE_DIE",
+        playerId: targeting.playerId,
+        unitId: targeting.unitId,
+        dieId: targeting.dieId,
+        actionType: targeting.actionType,
+        parameters: { direction },
+      });
+    }
 
     set({ targeting: null, targetingMousePos: null });
   },

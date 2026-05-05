@@ -75,14 +75,10 @@ describe("setupGame", () => {
     }
   });
 
-  it("ships are placed near table edges", () => {
+  it("ships start unplaced during deploy phase", () => {
     const state = setupGame("ship-edges", 4);
-    const halfTable = RULES.table.sizeInches / 2;
     for (const player of Object.values(state.players)) {
-      const pos = player.ship.position;
-      const nearEdge =
-        Math.abs(pos.x) > halfTable - 5 || Math.abs(pos.z) > halfTable - 5;
-      expect(nearEdge).toBe(true);
+      expect(player.ship.placed).toBe(false);
     }
   });
 
