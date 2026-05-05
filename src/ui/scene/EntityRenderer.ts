@@ -239,14 +239,15 @@ function renderShips(game: GameState, group: THREE.Group): void {
       shipGroup.add(light);
     }
 
-    // Thruster glow (rear)
-    const thrusterGeo = new THREE.ConeGeometry(0.3, 0.5, 6);
+    // Thruster glow (rear) — scales with velocity
+    const thrustScale = ship.velocity.magnitude > 0 ? 0.3 + ship.velocity.magnitude * 0.2 : 0.15;
+    const thrusterGeo = new THREE.ConeGeometry(thrustScale, thrustScale * 2, 6);
     const thrusterMat = new THREE.MeshStandardMaterial({
       color: 0x4488ff,
-      emissive: 0x2244aa,
-      emissiveIntensity: ship.velocity.magnitude > 0 ? 1.0 : 0.1,
+      emissive: ship.velocity.magnitude > 0 ? 0x4488ff : 0x112233,
+      emissiveIntensity: ship.velocity.magnitude > 0 ? 0.5 + ship.velocity.magnitude * 0.3 : 0.1,
       transparent: true,
-      opacity: 0.7,
+      opacity: ship.velocity.magnitude > 0 ? 0.9 : 0.3,
     });
     const thruster = new THREE.Mesh(thrusterGeo, thrusterMat);
     thruster.rotation.x = Math.PI / 2;
@@ -271,10 +272,10 @@ function renderShips(game: GameState, group: THREE.Group): void {
     }
 
     shipGroup.position.set(ship.position.x, 0, ship.position.z);
-    // Ship model default faces -Z. Rotate so it points in the facing direction.
-    // facing=0 means +X, but model forward is -Z (which is angle -PI/2).
-    // So rotation.y = -(facing + PI/2)
-    shipGroup.rotation.y = -(ship.facing + Math.PI / 2);
+    // Rotate ship: if moving, face velocity direction. Otherwise use deploy facing.
+    const shipAngle = ship.velocity.magnitude > 0 ? ship.velocity.direction : ship.facing;
+    // Model forward is -Z (angle -PI/2 in XZ). rotation.y = -(angle + PI/2)
+    shipGroup.rotation.y = -(shipAngle + Math.PI / 2);
     group.add(shipGroup);
   }
 }
@@ -312,6 +313,10 @@ function renderCrew(game: GameState, group: THREE.Group): void {
       mesh.userData.entityType = "crew";
       mesh.userData.role = crew.role;
       mesh.position.set(pos.x, 0.5, pos.z);
+      // Rotate crew to face velocity direction when moving
+      if (crew.velocity.magnitude > 0) {
+        mesh.rotation.y = -(crew.velocity.direction + Math.PI / 2);
+      }
       mesh.castShadow = true;
       group.add(mesh);
 
