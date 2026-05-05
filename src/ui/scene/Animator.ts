@@ -7,7 +7,7 @@ interface EntityTarget {
   scale: THREE.Vector3;
 }
 
-const LERP_SPEED = 6; // Higher = faster interpolation
+const LERP_SPEED = 2.5; // Higher = faster interpolation
 
 /**
  * Tracks entity meshes and smoothly interpolates their positions/rotations
