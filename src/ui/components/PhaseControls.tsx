@@ -239,7 +239,7 @@ function RevealPhase() {
 }
 
 const DIRECTION_ACTIONS = new Set([
-  "burn-small", "burn-big", "burn-max", "push-off", "thruster-burn", "launch", "shove",
+  "burn-small", "burn-big", "burn-max", "push-off", "thruster-burn", "shove",
 ]);
 
 function ResolvePhase() {
@@ -248,20 +248,18 @@ function ResolvePhase() {
   const startTargeting = useGameStore((s) => s.startTargeting);
   const targeting = useGameStore((s) => s.targeting);
   const [selectedDieId, setSelectedDieId] = useState<string | null>(null);
-  const [actionParams, setActionParams] = useState<string>("{}");
+  const [subStep, setSubStep] = useState<{ action: string; dieId: string } | null>(null);
 
   const activePlayer = game.players[game.meta.activePlayerId];
   if (!activePlayer) return null;
 
   const assignedDice = activePlayer.dice.filter((d) => d.state === "assigned");
 
-  // Get the unit a die is assigned to
   const getUnitForDie = (dieId: string) => {
     const die = activePlayer.dice.find((d) => d.id === dieId);
     return die?.assignedTo ?? activePlayer.ship.id;
   };
 
-  // Get position + velocity for a unit
   const getUnitState = (unitId: string) => {
     if (activePlayer.ship.id === unitId) {
       return { position: activePlayer.ship.position, velocity: activePlayer.ship.velocity };
@@ -274,34 +272,91 @@ function ResolvePhase() {
     return { position: activePlayer.ship.position, velocity: { direction: 0, magnitude: 0 as const } };
   };
 
+  // Find embarked crew for launch
+  const embarkedCrew = Object.values(activePlayer.crews).filter(
+    (c) => c.position === "embarked" && c.state === "active"
+  );
+
+  // Find stowable salvage (near ship)
+  const stowableSalvage = game.table.looseSalvage.filter((s) => {
+    if (typeof s.position !== "object" || s.isAttached) return false;
+    const dx = (s.position as {x:number;z:number}).x - activePlayer.ship.position.x;
+    const dz = (s.position as {x:number;z:number}).z - activePlayer.ship.position.z;
+    return Math.sqrt(dx * dx + dz * dz) < 3;
+  });
+
+  // Find scannable targets (face-down within 4" of ship)
+  const scannableTargets: Array<{ id: string; label: string }> = [];
+  for (const s of game.table.looseSalvage) {
+    if (!s.isFaceDown || typeof s.position !== "object") continue;
+    const dx = (s.position as {x:number;z:number}).x - activePlayer.ship.position.x;
+    const dz = (s.position as {x:number;z:number}).z - activePlayer.ship.position.z;
+    if (Math.sqrt(dx * dx + dz * dz) <= 4) {
+      scannableTargets.push({ id: s.id, label: `Salvage ${s.id}` });
+    }
+  }
+  for (const w of game.table.wrecks) {
+    const dx = w.position.x - activePlayer.ship.position.x;
+    const dz = w.position.z - activePlayer.ship.position.z;
+    if (Math.sqrt(dx * dx + dz * dz) > 4) continue;
+    for (const c of w.compartments) {
+      if (c.isSealed) scannableTargets.push({ id: c.id, label: `Hatch ${c.id}` });
+    }
+  }
+
+  const resolveSimple = (dieId: string, actionType: string, params: Record<string, unknown>) => {
+    dispatch({
+      type: "RESOLVE_DIE",
+      playerId: activePlayer.id,
+      unitId: getUnitForDie(dieId),
+      dieId,
+      actionType: actionType as ActionType,
+      parameters: params,
+    });
+    setSelectedDieId(null);
+    setSubStep(null);
+  };
+
   const handleAction = (dieId: string, actionType: string) => {
     const unitId = getUnitForDie(dieId);
     const { position, velocity } = getUnitState(unitId);
 
     if (DIRECTION_ACTIONS.has(actionType)) {
-      // Enter targeting mode — player clicks on the playfield
       startTargeting({
         actionType: actionType as ActionType,
-        unitId,
-        dieId,
+        unitId, dieId,
         playerId: activePlayer.id,
         unitPosition: position,
         currentVelocity: velocity,
         targetKind: "direction",
       });
-    } else {
-      // Non-direction actions: dispatch immediately with any extra params
-      let params: Record<string, unknown> = {};
-      try { params = JSON.parse(actionParams); } catch { /* ignore */ }
-      dispatch({
-        type: "RESOLVE_DIE",
-        playerId: activePlayer.id,
-        unitId,
-        dieId,
-        actionType: actionType as ActionType,
-        parameters: params,
-      });
+      return;
     }
+
+    // Actions that need a sub-step picker
+    if (actionType === "launch") {
+      setSubStep({ action: "launch", dieId });
+      return;
+    }
+    if (actionType === "stow") {
+      if (stowableSalvage.length === 1) {
+        resolveSimple(dieId, "stow", { salvageId: stowableSalvage[0].id, ejectIds: [] });
+      } else {
+        setSubStep({ action: "stow", dieId });
+      }
+      return;
+    }
+    if (actionType === "scan") {
+      if (scannableTargets.length === 1) {
+        resolveSimple(dieId, "scan", { targetId: scannableTargets[0].id });
+      } else {
+        setSubStep({ action: "scan", dieId });
+      }
+      return;
+    }
+
+    // Everything else: immediate
+    resolveSimple(dieId, actionType, {});
     setSelectedDieId(null);
   };
 
@@ -313,6 +368,87 @@ function ResolvePhase() {
           Click on the playfield to set direction for <b>{targeting.actionType}</b>.
           Right-click or Esc to cancel.
         </div>
+      </div>
+    );
+  }
+
+  // Sub-step: pick crew for launch
+  if (subStep?.action === "launch") {
+    return (
+      <div style={controlsStyle}>
+        <div style={phaseTitle}>Launch — Pick Crew</div>
+        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+          {embarkedCrew.map((c) => (
+            <button key={c.id} style={actionBtn(true)} onClick={() => {
+              const { position, velocity } = getUnitState(activePlayer.ship.id);
+              startTargeting({
+                actionType: "launch" as ActionType,
+                unitId: activePlayer.ship.id,
+                dieId: subStep.dieId,
+                playerId: activePlayer.id,
+                unitPosition: position,
+                currentVelocity: velocity,
+                targetKind: "direction",
+              });
+              // Store crewId so confirmTargeting can include it
+              useGameStore.setState({ _launchCrewId: c.id } as any);
+              setSubStep(null);
+            }}>
+              {c.role}
+            </button>
+          ))}
+          <button style={actionBtn(true)} onClick={() => setSubStep(null)}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Sub-step: pick salvage for stow
+  if (subStep?.action === "stow") {
+    return (
+      <div style={controlsStyle}>
+        <div style={phaseTitle}>Stow — Pick Salvage</div>
+        {stowableSalvage.length === 0 ? (
+          <div style={{ color: "#aa6644" }}>No salvage near ship to stow.
+            <button style={actionBtn(true)} onClick={() => setSubStep(null)}>Back</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {stowableSalvage.map((s) => (
+              <button key={s.id} style={actionBtn(true)} onClick={() => {
+                resolveSimple(subStep.dieId, "stow", { salvageId: s.id, ejectIds: [] });
+              }}>
+                {s.type} ({s.vp}VP, mass {s.mass})
+              </button>
+            ))}
+            <button style={actionBtn(true)} onClick={() => setSubStep(null)}>Cancel</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Sub-step: pick target for scan
+  if (subStep?.action === "scan") {
+    return (
+      <div style={controlsStyle}>
+        <div style={phaseTitle}>Scan — Pick Target</div>
+        {scannableTargets.length === 0 ? (
+          <div style={{ color: "#aa6644" }}>No scannable targets in range.
+            <button style={actionBtn(true)} onClick={() => setSubStep(null)}>Back</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {scannableTargets.map((t) => (
+              <button key={t.id} style={actionBtn(true)} onClick={() => {
+                resolveSimple(subStep.dieId, "scan", { targetId: t.id });
+              }}>
+                {t.label}
+              </button>
+            ))}
+            <button style={actionBtn(true)} onClick={() => setSubStep(null)}>Cancel</button>
+          </div>
+        )}
       </div>
     );
   }
@@ -377,27 +513,25 @@ function ResolvePhase() {
                 ))}
               </div>
               {/* Extra params for non-direction actions */}
-              <div style={{ marginTop: "6px" }}>
-                <label style={{ color: "#556677", fontSize: "10px" }}>
-                  Extra params:{" "}
-                  <input
-                    type="text"
-                    value={actionParams}
-                    onChange={(e) => setActionParams(e.target.value)}
-                    style={{ ...inputStyle, width: "180px", fontSize: "10px" }}
-                  />
-                </label>
-              </div>
             </div>
           )}
         </>
       )}
 
-      {assignedDice.length === 0 && (
-        <button onClick={() => dispatch({ type: "ADVANCE_PHASE" })} style={advanceBtn}>
-          Proceed to Drift →
-        </button>
-      )}
+      <div style={{ marginTop: "10px", display: "flex", gap: "8px" }}>
+        {assignedDice.length === 0 && (
+          <button onClick={() => dispatch({ type: "ADVANCE_PHASE" })} style={advanceBtn}>
+            Proceed to Drift →
+          </button>
+        )}
+        {assignedDice.length > 0 && (
+          <button onClick={() => dispatch({ type: "ADVANCE_PHASE" })} style={{
+            ...advanceBtn, background: "#332222", borderColor: "#554433", color: "#cc8866",
+          }}>
+            End Resolve (forfeit remaining dice) →
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -467,16 +601,24 @@ function getAvailableActions(
 }
 
 function DriftPhase() {
+  const game = useGameStore((s) => s.game)!;
   const dispatch = useGameStore((s) => s.dispatch);
 
   return (
     <div style={controlsStyle}>
-      <div style={phaseTitle}>Drift Phase</div>
+      <div style={phaseTitle}>Drift Phase — Round {game.meta.round}</div>
+      <div style={{ color: "#667788", fontSize: "11px", marginBottom: "8px" }}>
+        All units move along their velocity vectors.
+      </div>
       <button onClick={() => {
         dispatch({ type: "RUN_DRIFT" });
-        setTimeout(() => dispatch({ type: "ADVANCE_PHASE" }), 100);
       }} style={advanceBtn}>
-        Run Drift →
+        Run Drift
+      </button>
+      <button onClick={() => {
+        dispatch({ type: "ADVANCE_PHASE" });
+      }} style={{ ...advanceBtn, marginLeft: "8px" }}>
+        {game.meta.round >= 6 ? "Go to Scoring →" : `Next Round (${game.meta.round + 1}) →`}
       </button>
     </div>
   );
@@ -572,13 +714,3 @@ const advanceBtn: React.CSSProperties = {
 };
 
 
-const inputStyle: React.CSSProperties = {
-  background: "#111122",
-  border: "1px solid #334455",
-  color: "#aabbcc",
-  padding: "3px 6px",
-  fontFamily: "monospace",
-  fontSize: "11px",
-  borderRadius: "3px",
-  width: "200px",
-};

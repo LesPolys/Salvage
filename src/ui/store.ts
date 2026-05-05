@@ -337,13 +337,21 @@ export const useGameStore = create<UIState>((set, get) => ({
       const dz = worldPos.z - targeting.unitPosition.z;
       const direction = Math.atan2(dz, dx);
 
+      const extraParams: Record<string, unknown> = { direction };
+      // Include crewId for launch actions
+      const storeState = get() as any;
+      if (targeting.actionType === "launch" && storeState._launchCrewId) {
+        extraParams.crewId = storeState._launchCrewId;
+        set({ _launchCrewId: undefined } as any);
+      }
+
       dispatch({
         type: "RESOLVE_DIE",
         playerId: targeting.playerId,
         unitId: targeting.unitId,
         dieId: targeting.dieId,
         actionType: targeting.actionType,
-        parameters: { direction },
+        parameters: extraParams,
       });
     }
 
